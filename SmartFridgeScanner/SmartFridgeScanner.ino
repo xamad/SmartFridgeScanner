@@ -1,18 +1,34 @@
 /*
- * Smart Fridge Barcode Scanner v2.1
+ * Smart Fridge Barcode Scanner v2.2
  * Server: https://frigo.xamad.net
  */
 
+#include "config.h"  // Must be first for FORCE_BOARD_* defines
+
+// ============ BOARD DETECTION ============
+// Priority: 1) Forced board from config.h, 2) Auto-detect
 #if CONFIG_IDF_TARGET_ESP32S3
     #define BOARD_ESP32S3
     const char* BOARD_NAME = "ESP32-S3";
     bool useLocalOCR = true;
 #elif CONFIG_IDF_TARGET_ESP32
-    #if defined(BOARD_HAS_PSRAM) || defined(CONFIG_SPIRAM_SUPPORT)
+    #if defined(FORCE_BOARD_ESP32CAM)
+        // Forced ESP32-CAM mode (ignores PSRAM detection)
+        #define BOARD_ESP32CAM
+        const char* BOARD_NAME = "ESP32-CAM";
+        bool useLocalOCR = false;
+    #elif defined(FORCE_BOARD_WROVER)
+        // Forced WROVER mode
+        #define BOARD_WROVER
+        const char* BOARD_NAME = "ESP32-WROVER";
+        bool useLocalOCR = false;
+    #elif defined(BOARD_HAS_PSRAM) || defined(CONFIG_SPIRAM_SUPPORT)
+        // Auto-detect: has PSRAM -> assume WROVER (may fail on ESP32-CAM with PSRAM!)
         #define BOARD_WROVER
         const char* BOARD_NAME = "ESP32-WROVER";
         bool useLocalOCR = false;
     #else
+        // Auto-detect: no PSRAM -> assume basic ESP32-CAM
         #define BOARD_ESP32CAM
         const char* BOARD_NAME = "ESP32-CAM";
         bool useLocalOCR = false;
@@ -21,7 +37,6 @@
     #error "Board non supportata!"
 #endif
 
-#include "config.h"
 #include "camera_config.h"
 #include "led_feedback.h"
 #include "wifi_manager.h"
@@ -118,8 +133,12 @@ void loop() {
 }
 
 void printBanner() {
-    Serial.println("\n=== SMART FRIDGE v2.1 ===");
-    Serial.printf("Board: %s, Boot #%d\n", BOARD_NAME, bootCount);
+    Serial.println("\n=== SMART FRIDGE v2.2 ===");
+    #if defined(FORCE_BOARD_ESP32CAM) || defined(FORCE_BOARD_WROVER)
+        Serial.printf("Board: %s (forced), Boot #%d\n", BOARD_NAME, bootCount);
+    #else
+        Serial.printf("Board: %s, Boot #%d\n", BOARD_NAME, bootCount);
+    #endif
     Serial.printf("OCR: %s, PIR: GPIO%d\n", useLocalOCR ? "Local" : "Remote", PIR_PIN);
     Serial.println("Server: frigo.xamad.net\n");
 }

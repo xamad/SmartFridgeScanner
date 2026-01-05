@@ -1,6 +1,15 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// ============ BOARD SELECTION ============
+// Uncomment ONE of these if auto-detection fails:
+// - ESP32-CAM AI-Thinker (with or without PSRAM): use FORCE_BOARD_ESP32CAM
+// - ESP32-WROVER-CAM: use FORCE_BOARD_WROVER
+// - ESP32-S3-CAM: auto-detected, no need to force
+
+#define FORCE_BOARD_ESP32CAM  // <-- Force ESP32-CAM mode (PIR on GPIO13)
+// #define FORCE_BOARD_WROVER  // <-- Force WROVER mode (PIR on GPIO34)
+
 // ============ SERVER CONFIGURATION ============
 // VPS Server: frigo.xamad.net
 #define SERVER_HOST "frigo.xamad.net"
