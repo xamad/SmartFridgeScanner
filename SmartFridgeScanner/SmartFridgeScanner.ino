@@ -42,6 +42,7 @@
 #include "wifi_manager.h"
 #include "barcode_scanner.h"
 #include "api_client.h"
+#include "debug_server.h"
 
 #if defined(BOARD_WROVER)
     #define PIR_PIN 34
@@ -124,6 +125,10 @@ void setup() {
     Serial.println("Scanner OK");
     setupWiFiManager();
     speakerBeep(2000,100); delay(100); speakerBeep(2500,100);
+
+    // Start debug web server
+    initDebugServer();
+
     Serial.println("\nPronto! Server: frigo.xamad.net");
     Serial.println("BOOT: click=scan, 1s=toggle, 3s=scontrino\n");
 }
@@ -188,7 +193,10 @@ void loop() {
     if(now - lastActivity > DEEP_SLEEP_TIMEOUT) enterDeepSleep();
     #endif
 
-    delay(50);
+    // Handle debug web server requests
+    handleDebugServer();
+
+    delay(10);
 }
 
 void printBanner() {
