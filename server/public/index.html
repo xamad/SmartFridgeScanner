@@ -24,6 +24,7 @@
         .badge-danger { background: #ffebee; color: #c62828; }
         .badge-warning { background: #fff3e0; color: #ef6c00; }
         .badge-success { background: #e8f5e9; color: #2e7d32; }
+        .badge-info { background: #e3f2fd; color: #1565c0; }
         .btn { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 0.9em; }
         .btn-danger { background: #f44336; color: white; }
         .btn-primary { background: #2196F3; color: white; }
@@ -87,7 +88,9 @@
                         <th>Barcode</th>
                         <th>Nome</th>
                         <th>Marca</th>
+                        <th>Peso</th>
                         <th>Qtà</th>
+                        <th>Acquisto</th>
                         <th>Scadenza</th>
                         <th>Azioni</th>
                     </tr>
@@ -156,20 +159,23 @@
             const data = await fetchJSON('/inventory');
             const tbody = document.getElementById('inventory-table');
             if (!data.products.length) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty">Nessun prodotto</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="empty">Nessun prodotto</td></tr>';
                 return;
             }
             tbody.innerHTML = data.products.map(p => {
                 const imgHtml = p.image_path
                     ? `<img class="thumbnail" src="${p.image_path}" onclick="openModal('${p.image_path}')" alt="${p.name || p.barcode}">`
                     : `<div class="no-img">📦</div>`;
+                const receiptBadge = p.from_receipt ? '<span class="badge badge-info" title="Da scontrino">🧾</span> ' : '';
                 return `
                     <tr data-id="${p.id}">
                         <td>${imgHtml}</td>
-                        <td>${p.barcode}</td>
+                        <td>${receiptBadge}${p.barcode.startsWith('RCP') ? '-' : p.barcode}</td>
                         <td><span class="editable" onclick="editField(this, ${p.id}, 'name')">${p.name || '-'}</span></td>
                         <td><span class="editable" onclick="editField(this, ${p.id}, 'brand')">${p.brand || '-'}</span></td>
+                        <td><span class="editable" onclick="editField(this, ${p.id}, 'weight')">${p.weight || '-'}</span></td>
                         <td><span class="editable" onclick="editField(this, ${p.id}, 'quantity')">${p.quantity}</span></td>
+                        <td><span class="editable" onclick="editField(this, ${p.id}, 'purchase_date')">${p.purchase_date || '-'}</span></td>
                         <td><span class="editable" onclick="editField(this, ${p.id}, 'expiry_date')">${p.expiry_date || '-'}</span></td>
                         <td class="action-btns">
                             <button class="btn btn-danger" onclick="deleteProduct(${p.id})" title="Elimina">🗑️</button>
@@ -241,7 +247,7 @@
         // Inline edit per prodotti inventario
         function editField(el, id, field) {
             const currentVal = el.textContent === '-' ? '' : el.textContent;
-            const isDate = field === 'expiry_date';
+            const isDate = field === 'expiry_date' || field === 'purchase_date';
             const isNum = field === 'quantity';
 
             const input = document.createElement('input');
@@ -249,6 +255,7 @@
             input.type = isDate ? 'date' : (isNum ? 'number' : 'text');
             input.value = currentVal;
             if (isNum) { input.min = '1'; input.style.width = '60px'; }
+            if (field === 'weight') { input.placeholder = 'es. 0,250 kg'; input.style.width = '100px'; }
 
             el.replaceWith(input);
             input.focus();
