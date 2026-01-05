@@ -132,47 +132,62 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
+    static bool waitingForMorePresses = false;
+    static unsigned long pressWindowStart = 0;
 
     // Button handling with triple-press detection for receipt mode
     bool btn = (digitalRead(BOOT_BTN) == LOW);
-    if(btn && !buttonPressed) { buttonPressed = true; buttonPressStart = now; lastActivity = now; }
+
+    if(btn && !buttonPressed) {
+        buttonPressed = true;
+        buttonPressStart = now;
+        lastActivity = now;
+    }
     else if(!btn && buttonPressed) {
         unsigned long dur = now - buttonPressStart;
         buttonPressed = false;
+
         if(dur >= LONG_PRESS_TIME) {
-            toggleMode(); modeChangeTime = now;
-            pressCount = 0; // Reset triple-press counter
+            // Long press: toggle mode
+            toggleMode();
+            modeChangeTime = now;
+            pressCount = 0;
+            waitingForMorePresses = false;
         }
         else if(dur >= DEBOUNCE_TIME) {
-            // Triple-press detection
-            if(now - lastPressTime < TRIPLE_PRESS_WINDOW) {
-                pressCount++;
-            } else {
-                pressCount = 1;
-            }
+            // Short press: count it
+            pressCount++;
             lastPressTime = now;
 
+            if(pressCount == 1) {
+                // First press - start the window
+                pressWindowStart = now;
+                waitingForMorePresses = true;
+            }
+
             if(pressCount >= 3) {
-                // Triple-press: Receipt scan mode
+                // Triple press: Receipt scan
                 Serial.println("\n>>> SCONTRINO <<<");
                 speakerBeep(1000,50); delay(50); speakerBeep(1500,50); delay(50); speakerBeep(2000,50);
                 handleReceiptScan();
                 lastScanTime = now;
                 pressCount = 0;
-            } else {
-                // Wait briefly for more presses, then do normal scan
-                delay(TRIPLE_PRESS_WINDOW);
-                // Check if no more presses happened during wait
-                if(pressCount < 3) {
-                    Serial.println("\n>>> SCAN <<<");
-                    speakerBeep(1500,50);
-                    handleScan();
-                    lastScanTime = millis();
-                    pressCount = 0;
-                }
+                waitingForMorePresses = false;
             }
         }
-        delay(100);
+        delay(50);  // Small debounce
+    }
+
+    // Non-blocking: check if press window expired - do normal scan
+    if(waitingForMorePresses && pressCount > 0 && pressCount < 3) {
+        if(now - pressWindowStart > TRIPLE_PRESS_WINDOW) {
+            Serial.println("\n>>> SCAN <<<");
+            speakerBeep(1500,50);
+            handleScan();
+            lastScanTime = now;
+            pressCount = 0;
+            waitingForMorePresses = false;
+        }
     }
 
     // PIR motion detection (only if enabled)
