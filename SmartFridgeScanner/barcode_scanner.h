@@ -163,11 +163,16 @@ int decodeDigit(uint8_t *pattern, bool isRight, bool *isG) {
     return -1;
 }
 
-// ============ READ 7-MODULE PATTERN ============
-void readPattern(uint8_t *line, int startX, int moduleWidth, int threshold, uint8_t *pattern) {
+// ============ READ 7-MODULE PATTERN (multi-sample) ============
+void readPattern(uint8_t *line, int startX, int moduleWidth, int threshold, uint8_t *pattern, int width) {
     for (int m = 0; m < 7; m++) {
-        int px = startX + m * moduleWidth + moduleWidth / 2;
-        pattern[m] = (line[px] <= threshold) ? 1 : 0;
+        // Sample at 3 points within each module and take majority vote
+        int count = 0;
+        for (int s = 0; s < 3; s++) {
+            int px = startX + m * moduleWidth + (moduleWidth * (s + 1)) / 4;
+            if (px >= 0 && px < width && line[px] <= threshold) count++;
+        }
+        pattern[m] = (count >= 2) ? 1 : 0;
     }
 }
 
@@ -217,7 +222,7 @@ BarcodeResult scanEAN13(uint8_t *line, int width, int threshold, int start, int 
     // Decode left 6 digits
     int x = start + moduleWidth * 3;  // Skip start guard
     for (int d = 0; d < 6; d++) {
-        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern, width);
         bool isG = false;
         int digit = decodeDigit(pattern, false, &isG);
         if (digit < 0) return result;
@@ -238,7 +243,7 @@ BarcodeResult scanEAN13(uint8_t *line, int width, int threshold, int start, int 
     // Decode right 6 digits
     x = start + moduleWidth * 50;  // After center guard
     for (int d = 0; d < 6; d++) {
-        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern, width);
         int digit = decodeDigit(pattern, true, NULL);
         if (digit < 0) return result;
         digits[d + 7] = '0' + digit;
@@ -270,7 +275,7 @@ BarcodeResult scanEAN8(uint8_t *line, int width, int threshold, int start, int m
     // Decode left 4 digits (all L-codes)
     int x = start + moduleWidth * 3;
     for (int d = 0; d < 4; d++) {
-        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern, width);
         int digit = decodeDigit(pattern, false, NULL);
         if (digit < 0) return result;
         digits[d] = '0' + digit;
@@ -279,7 +284,7 @@ BarcodeResult scanEAN8(uint8_t *line, int width, int threshold, int start, int m
     // Decode right 4 digits (all R-codes)
     x = start + moduleWidth * 36;  // After center guard
     for (int d = 0; d < 4; d++) {
-        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern, width);
         int digit = decodeDigit(pattern, true, NULL);
         if (digit < 0) return result;
         digits[d + 4] = '0' + digit;
@@ -311,7 +316,7 @@ BarcodeResult scanUPCA(uint8_t *line, int width, int threshold, int start, int m
     // Decode left 6 digits (all L-codes)
     int x = start + moduleWidth * 3;
     for (int d = 0; d < 6; d++) {
-        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern, width);
         int digit = decodeDigit(pattern, false, NULL);
         if (digit < 0) return result;
         digits[d] = '0' + digit;
@@ -320,7 +325,7 @@ BarcodeResult scanUPCA(uint8_t *line, int width, int threshold, int start, int m
     // Decode right 6 digits (all R-codes)
     x = start + moduleWidth * 50;
     for (int d = 0; d < 6; d++) {
-        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern, width);
         int digit = decodeDigit(pattern, true, NULL);
         if (digit < 0) return result;
         digits[d + 6] = '0' + digit;
@@ -356,46 +361,90 @@ BarcodeResult scan1DBarcode(camera_fb_t *fb) {
                         height*2/5, height*3/5, height*5/12, height*7/12 };
     int numLines = 9;
 
+    // Temporary buffer for reversed line
+    static uint8_t reversedLine[1280];  // Max width
+
     for (int sl = 0; sl < numLines; sl++) {
         int y = scanLines[sl];
         uint8_t *line = pixels + y * width;
 
         // Calculate adaptive threshold for this line
-        long sum = 0;
         uint8_t minVal = 255, maxVal = 0;
         for (int x = 0; x < width; x++) {
-            sum += line[x];
             if (line[x] < minVal) minVal = line[x];
             if (line[x] > maxVal) maxVal = line[x];
         }
-        int threshold = (minVal + maxVal) / 2;  // Midpoint threshold
+        int threshold = (minVal + maxVal) / 2;
 
-        // Find start guard
+        // Skip low contrast lines
+        if (maxVal - minVal < 60) continue;
+
+        // Try multiple start guards on same line
+        for (int attempt = 0; attempt < 5; attempt++) {
+            int searchStart = attempt * (width / 6);
+            int moduleWidth = 0;
+
+            // Temporary modify line pointer for search offset
+            int start = -1;
+            for (int i = searchStart + 20; i < width - 200; i++) {
+                if (line[i] > threshold && line[i+1] <= threshold) {
+                    int bar1 = 0, space = 0, bar2 = 0;
+                    int j = i + 1;
+
+                    while (j < width && line[j] <= threshold) { bar1++; j++; }
+                    if (bar1 < 2 || bar1 > 25) continue;
+
+                    while (j < width && line[j] > threshold) { space++; j++; }
+                    if (space < 1 || abs(space - bar1) > bar1) continue;
+
+                    while (j < width && line[j] <= threshold) { bar2++; j++; }
+                    if (abs(bar2 - bar1) > bar1 / 2 + 1) continue;
+
+                    moduleWidth = (bar1 + space + bar2) / 3;
+                    if (moduleWidth >= 2 && moduleWidth <= 20) {
+                        start = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            if (start < 0) continue;
+
+            // Try different module width variations (+/- 20%)
+            for (int mwVar = -2; mwVar <= 2; mwVar++) {
+                int mw = moduleWidth + mwVar;
+                if (mw < 2) continue;
+
+                // Try EAN-13
+                result = scanEAN13(line, width, threshold, start, mw);
+                if (result.found) return result;
+
+                // Try EAN-8
+                result = scanEAN8(line, width, threshold, start, mw);
+                if (result.found) return result;
+
+                // Try UPC-A
+                result = scanUPCA(line, width, threshold, start, mw);
+                if (result.found) return result;
+            }
+        }
+
+        // Also try scanning in reverse direction
+        for (int x = 0; x < width; x++) {
+            reversedLine[x] = line[width - 1 - x];
+        }
+
         int moduleWidth = 0;
-        int start = findStartGuard(line, width, threshold, &moduleWidth);
-        if (start < 0) continue;
+        int start = findStartGuard(reversedLine, width, threshold, &moduleWidth);
+        if (start >= 0 && moduleWidth >= 2 && moduleWidth <= 20) {
+            result = scanEAN13(reversedLine, width, threshold, start, moduleWidth);
+            if (result.found) return result;
 
-        Serial.printf("[1D] Line %d: start=%d, mod=%d, th=%d\n", y, start, moduleWidth, threshold);
+            result = scanEAN8(reversedLine, width, threshold, start, moduleWidth);
+            if (result.found) return result;
 
-        // Try EAN-13 first (most common in Europe)
-        result = scanEAN13(line, width, threshold, start, moduleWidth);
-        if (result.found) {
-            Serial.printf("[EAN13] SUCCESS: %s\n", result.data.c_str());
-            return result;
-        }
-
-        // Try EAN-8 (smaller products)
-        result = scanEAN8(line, width, threshold, start, moduleWidth);
-        if (result.found) {
-            Serial.printf("[EAN8] SUCCESS: %s\n", result.data.c_str());
-            return result;
-        }
-
-        // Try UPC-A (US products)
-        result = scanUPCA(line, width, threshold, start, moduleWidth);
-        if (result.found) {
-            Serial.printf("[UPCA] SUCCESS: %s\n", result.data.c_str());
-            return result;
+            result = scanUPCA(reversedLine, width, threshold, start, moduleWidth);
+            if (result.found) return result;
         }
     }
 
