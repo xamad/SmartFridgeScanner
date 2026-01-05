@@ -77,9 +77,13 @@ void printBanner();
 void showMode();
 void toggleMode();
 void handleScan();
+#ifdef ENABLE_DEEP_SLEEP
 void enterDeepSleep();
+#endif
 
+#ifdef ENABLE_PIR
 void IRAM_ATTR pirISR() { pirTriggered = true; lastActivity = millis(); }
+#endif
 
 void setup() {
     Serial.begin(115200);
@@ -94,14 +98,24 @@ void setup() {
         default: Serial.println("Wake: Power on"); break;
     }
     initLED();
-    pinMode(PIR_PIN, INPUT);
     pinMode(BOOT_BTN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(PIR_PIN), pirISR, RISING);
-    if(wasInOutMode && wr == ESP_SLEEP_WAKEUP_EXT0) { modeAdd = false; modeChangeTime = millis(); }
-    else { modeAdd = true; wasInOutMode = false; }
-    showMode();
+
+    // Initialize camera FIRST (before PIR to avoid GPIO ISR conflict)
     if(!initCamera()) { Serial.println("Camera FAIL!"); ledError(); speakerError(); delay(3000); ESP.restart(); }
     Serial.println("Camera OK");
+
+    #ifdef ENABLE_PIR
+        pinMode(PIR_PIN, INPUT);
+        attachInterrupt(digitalPinToInterrupt(PIR_PIN), pirISR, RISING);
+        Serial.println("PIR OK");
+        if(wasInOutMode && wr == ESP_SLEEP_WAKEUP_EXT0) { modeAdd = false; modeChangeTime = millis(); }
+        else { modeAdd = true; wasInOutMode = false; }
+    #else
+        modeAdd = true; wasInOutMode = false;
+        Serial.println("PIR: Disabled");
+    #endif
+
+    showMode();
     initBarcodeScanner();
     Serial.println("Scanner OK");
     setupWiFiManager();
@@ -112,6 +126,8 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
+
+    // Button handling (always active)
     bool btn = (digitalRead(BOOT_BTN) == LOW);
     if(btn && !buttonPressed) { buttonPressed = true; buttonPressStart = now; lastActivity = now; }
     else if(!btn && buttonPressed) {
@@ -121,25 +137,46 @@ void loop() {
         else if(dur >= DEBOUNCE_TIME) { Serial.println("\n>>> SCAN <<<"); speakerBeep(1500,50); handleScan(); lastScanTime = now; }
         delay(100);
     }
+
+    // PIR motion detection (only if enabled)
+    #ifdef ENABLE_PIR
     if(pirTriggered || (now - lastPIRCheck > PIR_CHECK_INTERVAL && digitalRead(PIR_PIN) == HIGH)) {
         pirTriggered = false; lastPIRCheck = now; lastActivity = now;
         if(now - lastScanTime > SCAN_COOLDOWN) { Serial.println("\n>>> PIR <<<"); speakerBeep(1500,50); handleScan(); lastScanTime = now; }
     }
+    #endif
+
+    // Mode timeout (auto-return to IN mode)
     if(!modeAdd && modeChangeTime > 0 && (now - modeChangeTime > MODE_TIMEOUT)) {
         Serial.println("Timeout->IN"); modeAdd = true; wasInOutMode = false; modeChangeTime = 0; showMode();
     }
+
+    // Deep sleep (only if enabled)
+    #ifdef ENABLE_DEEP_SLEEP
     if(now - lastActivity > DEEP_SLEEP_TIMEOUT) enterDeepSleep();
+    #endif
+
     delay(50);
 }
 
 void printBanner() {
-    Serial.println("\n=== SMART FRIDGE v2.2 ===");
+    Serial.println("\n=== SMART FRIDGE v2.3 ===");
     #if defined(FORCE_BOARD_ESP32CAM) || defined(FORCE_BOARD_WROVER)
         Serial.printf("Board: %s (forced), Boot #%d\n", BOARD_NAME, bootCount);
     #else
         Serial.printf("Board: %s, Boot #%d\n", BOARD_NAME, bootCount);
     #endif
-    Serial.printf("OCR: %s, PIR: GPIO%d\n", useLocalOCR ? "Local" : "Remote", PIR_PIN);
+    Serial.printf("OCR: %s\n", useLocalOCR ? "Local" : "Remote");
+    #ifdef ENABLE_PIR
+        Serial.printf("PIR: GPIO%d\n", PIR_PIN);
+    #else
+        Serial.println("PIR: Disabled");
+    #endif
+    #ifdef ENABLE_DEEP_SLEEP
+        Serial.println("Sleep: Enabled (5min)");
+    #else
+        Serial.println("Sleep: Disabled");
+    #endif
     Serial.println("Server: frigo.xamad.net\n");
 }
 
@@ -193,16 +230,18 @@ void handleScan() {
     Serial.println("=============\n");
 }
 
+#ifdef ENABLE_DEEP_SLEEP
 void enterDeepSleep() {
     Serial.println("\n--- SLEEP ---");
     wasInOutMode = !modeAdd;
     ledOff(); flashOff();
     WiFi.disconnect(true); WiFi.mode(WIFI_OFF);
-    #if defined(BOARD_WROVER) || defined(BOARD_ESP32S3)
+    #if defined(ENABLE_PIR) && (defined(BOARD_WROVER) || defined(BOARD_ESP32S3))
         esp_sleep_enable_ext0_wakeup((gpio_num_t)PIR_PIN, 1);
     #else
-        esp_sleep_enable_timer_wakeup(60000000ULL);
+        esp_sleep_enable_timer_wakeup(60000000ULL);  // 60 sec timer wake
     #endif
     Serial.println("Zzz..."); Serial.flush(); delay(100);
     esp_deep_sleep_start();
 }
+#endif

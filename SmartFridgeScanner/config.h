@@ -10,6 +10,14 @@
 #define FORCE_BOARD_ESP32CAM  // <-- Force ESP32-CAM mode (PIR on GPIO13)
 // #define FORCE_BOARD_WROVER  // <-- Force WROVER mode (PIR on GPIO34)
 
+// ============ PIR SENSOR ============
+// Comment out to DISABLE PIR sensor (use only manual BOOT button scans)
+// #define ENABLE_PIR
+
+// ============ DEEP SLEEP ============
+// Comment out to DISABLE deep sleep (device stays always on)
+// #define ENABLE_DEEP_SLEEP
+
 // ============ SERVER CONFIGURATION ============
 // VPS Server: frigo.xamad.net
 #define SERVER_HOST "frigo.xamad.net"
