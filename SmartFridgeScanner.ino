@@ -3,27 +3,29 @@
  *  Smart Fridge Barcode Scanner - Main
  *  Auto-detect: ESP32-CAM vs ESP32-S3
  *  Features: Barcode, QR, OCR, WiFi Manager, Speaker
+ *  Version: 2.0
  * =====================================================
  */
-
-#include "camera_config.h"
-#include "barcode_scanner.h"
-#include "wifi_manager.h"
-#include "led_feedback.h"
-#include "api_client.h"
 
 // ============ BOARD AUTO-DETECTION ============
 #if CONFIG_IDF_TARGET_ESP32S3
     #define BOARD_ESP32S3
-    #define BOARD_NAME "ESP32-S3"
+    const char* BOARD_NAME = "ESP32-S3";
     bool useLocalOCR = true;
 #elif CONFIG_IDF_TARGET_ESP32
     #define BOARD_ESP32CAM
-    #define BOARD_NAME "ESP32-CAM"
+    const char* BOARD_NAME = "ESP32-CAM";
     bool useLocalOCR = false;
 #else
     #error "Board non supportata!"
 #endif
+
+// Include headers in correct order
+#include "camera_config.h"
+#include "led_feedback.h"
+#include "wifi_manager.h"
+#include "barcode_scanner.h"
+#include "api_client.h"
 
 // ============ PIN DEFINITIONS ============
 #define PIR_PIN 33
@@ -41,6 +43,12 @@ RTC_DATA_ATTR unsigned long lastModeChange = 0;
 
 unsigned long lastPIRCheck = 0;
 unsigned long lastScanTime = 0;
+
+// ============ FUNCTION DECLARATIONS ============
+void printBanner();
+void showMode();
+void toggleMode();
+void handleScan();
 
 // ============ SETUP ============
 void setup() {
@@ -78,12 +86,15 @@ void setup() {
     // WiFi setup with manager
     setupWiFiManager();
     
-    // Ready beep
+    // Ready beeps
     speakerBeep(2000, 100);
     delay(100);
     speakerBeep(2500, 100);
     
     Serial.println("\n🚀 Sistema pronto!\n");
+    Serial.println("Comandi:");
+    Serial.println("  - Premi BOOT per cambiare modalità IN/OUT");
+    Serial.println("  - Avvicina prodotto per scansione automatica\n");
 }
 
 // ============ MAIN LOOP ============
@@ -93,7 +104,11 @@ void loop() {
         delay(50); // debounce
         if(digitalRead(BOOT_BTN) == LOW) {
             toggleMode();
-            delay(2000); // Hold time
+            // Wait for button release
+            while(digitalRead(BOOT_BTN) == LOW) {
+                delay(10);
+            }
+            delay(500); // Additional delay after release
         }
     }
     
@@ -102,17 +117,19 @@ void loop() {
         lastPIRCheck = millis();
         
         if(digitalRead(PIR_PIN) == HIGH) {
-            // Cooldown check
+            // Cooldown check to avoid multiple scans
             if(millis() - lastScanTime > scanCooldown) {
                 Serial.println("\n>>> 👋 PRESENZA RILEVATA <<<");
                 speakerBeep(1500, 50);
                 handleScan();
                 lastScanTime = millis();
+            } else {
+                Serial.print(".");
             }
         }
     }
     
-    // Auto-return to IN mode after timeout
+    // Auto-return to IN mode after timeout in OUT mode
     if(!modeAdd && (millis() - lastModeChange > modeTimeout)) {
         Serial.println("⏱️  Timeout: ritorno a modalità INGRESSO");
         modeAdd = true;
@@ -131,6 +148,13 @@ void printBanner() {
     Serial.printf("Board: %s\n", BOARD_NAME);
     Serial.printf("Boot #%d\n", bootCount);
     Serial.printf("OCR: %s\n", useLocalOCR ? "Locale (AI)" : "Remoto (VPS)");
+    
+    #if defined(BOARD_ESP32S3)
+        Serial.println("Features: WiFi, Camera, AI OCR, Barcode/QR");
+    #else
+        Serial.println("Features: WiFi, Camera, Remote OCR, Barcode/QR");
+    #endif
+    
     Serial.println("========================================\n");
 }
 
@@ -138,10 +162,10 @@ void printBanner() {
 void showMode() {
     if(modeAdd) {
         ledGreen();
-        Serial.println("📥 Modalità: INGRESSO");
+        Serial.println("📥 Modalità: INGRESSO (aggiungi prodotti)");
     } else {
         ledRed();
-        Serial.println("📤 Modalità: USCITA");
+        Serial.println("📤 Modalità: USCITA (rimuovi prodotti)");
     }
 }
 
@@ -154,7 +178,7 @@ void toggleMode() {
     
     // Visual + audio feedback
     if(modeAdd) {
-        // Green mode
+        // Green mode - single tone
         for(int i=0; i<3; i++) {
             ledGreen();
             speakerBeep(1000, 100);
@@ -164,10 +188,12 @@ void toggleMode() {
         }
         ledGreen();
     } else {
-        // Red mode
+        // Red mode - double tone
         for(int i=0; i<3; i++) {
             ledRed();
-            speakerBeep(2000, 100);
+            speakerBeep(1500, 80);
+            delay(80);
+            speakerBeep(2000, 80);
             delay(200);
             ledOff();
             delay(100);
@@ -179,6 +205,7 @@ void toggleMode() {
 // ============ HANDLE SCAN ============
 void handleScan() {
     Serial.println("\n╔════ INIZIO SCANSIONE ════╗");
+    Serial.printf("Modalità: %s\n", modeAdd ? "INGRESSO" : "USCITA");
     
     // Processing LED
     ledProcessing();
@@ -196,6 +223,7 @@ void handleScan() {
         ledError();
         speakerError();
         showMode();
+        Serial.println("╚══════════════════════════╝\n");
         return;
     }
     
@@ -224,28 +252,35 @@ void handleScan() {
         #endif
         
         if(expiryDate.length() > 0) {
-            Serial.printf("📅 Scadenza: %s\n", expiryDate.c_str());
+            Serial.printf("📅 Scadenza rilevata: %s\n", expiryDate.c_str());
         } else {
-            Serial.println("⚠️  Scadenza non rilevata (richiederò input manuale)");
+            Serial.println("⚠️  Scadenza non rilevata");
+            Serial.println("   (sarà richiesto input manuale su app)");
         }
         
         // Send webhook
+        Serial.println("📡 Invio dati al server...");
         bool success = sendProductWebhook(result.data, expiryDate, result.type);
         
         esp_camera_fb_return(fb);
         
         if(success) {
-            Serial.println("✅ Prodotto registrato!");
+            Serial.println("✅ Prodotto registrato con successo!");
             ledSuccess();
             speakerSuccess();
         } else {
-            Serial.println("❌ Errore invio dati");
+            Serial.println("❌ Errore invio dati al server");
             ledError();
             speakerError();
         }
         
     } else {
         Serial.println("❌ Nessun barcode/QR trovato");
+        Serial.println("   Suggerimenti:");
+        Serial.println("   - Assicurati che il barcode sia ben illuminato");
+        Serial.println("   - Mantieni distanza 10-20cm");
+        Serial.println("   - Prova ad angolare il prodotto");
+        
         esp_camera_fb_return(fb);
         ledError();
         speakerError();
