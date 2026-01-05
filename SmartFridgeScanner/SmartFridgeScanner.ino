@@ -160,14 +160,14 @@ void loop() {
                 lastScanTime = now;
                 pressCount = 0;
             } else {
-                // Wait briefly for more presses
-                delay(TRIPLE_PRESS_WINDOW / 2);
-                if(now - lastPressTime >= TRIPLE_PRESS_WINDOW / 2) {
-                    // Single/double press timeout - do normal scan
+                // Wait briefly for more presses, then do normal scan
+                delay(TRIPLE_PRESS_WINDOW);
+                // Check if no more presses happened during wait
+                if(pressCount < 3) {
                     Serial.println("\n>>> SCAN <<<");
                     speakerBeep(1500,50);
                     handleScan();
-                    lastScanTime = now;
+                    lastScanTime = millis();
                     pressCount = 0;
                 }
             }
@@ -279,6 +279,13 @@ void handleReceiptScan() {
         delay(100);
     }
 
+    // Switch camera to JPEG for receipt (OCR needs proper image format)
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_pixformat(s, PIXFORMAT_JPEG);
+    s->set_framesize(s, FRAMESIZE_XGA);  // 1024x768 for text clarity
+    s->set_quality(s, 10);  // High quality JPEG
+    delay(200);  // Let camera adjust
+
     flashOn();
     delay(500); // Longer delay for receipt positioning
 
@@ -286,13 +293,15 @@ void handleReceiptScan() {
     if(!fb) {
         Serial.println("Frame fail!");
         flashOff();
+        // Restore grayscale for barcode scanning
+        s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
         ledError();
         speakerError();
         showMode();
         return;
     }
 
-    Serial.printf("Frame: %dx%d\n", fb->width, fb->height);
+    Serial.printf("Frame: %dx%d, %d bytes (JPEG)\n", fb->width, fb->height, fb->len);
     flashOff();
 
     Serial.println("Invio scontrino al server...");
@@ -300,6 +309,10 @@ void handleReceiptScan() {
 
     int productsFound = sendReceiptImage(fb);
     esp_camera_fb_return(fb);
+
+    // Restore grayscale for barcode scanning
+    s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
+    delay(100);
 
     if(productsFound > 0) {
         Serial.printf("Aggiunti %d prodotti!\n", productsFound);
