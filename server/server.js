@@ -9,6 +9,7 @@ const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const basicAuth = require('express-basic-auth');
+const sharp = require('sharp');  // For image format conversion
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -250,9 +251,21 @@ app.post('/api/ocr', upload.single('image'), async (req, res) => {
 // Receipt scanning endpoint - parses deli receipts (scontrini gastronomia)
 app.post('/api/receipt', upload.single('image'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Nessuna immagine' });
+    let convertedPath = null;
     try {
-        console.log('[RECEIPT] Processing receipt image...');
-        const { data: { text } } = await Tesseract.recognize(req.file.path, 'ita+eng');
+        console.log('[RECEIPT] Processing receipt image:', req.file.originalname, req.file.mimetype);
+
+        // Convert any image format to PNG for Tesseract compatibility
+        let imagePath = req.file.path;
+        if (req.file.originalname.endsWith('.pgm') || req.file.originalname.endsWith('.raw')) {
+            console.log('[RECEIPT] Converting PGM/raw to PNG...');
+            convertedPath = req.file.path + '.png';
+            await sharp(req.file.path).png().toFile(convertedPath);
+            imagePath = convertedPath;
+            console.log('[RECEIPT] Conversion complete');
+        }
+
+        const { data: { text } } = await Tesseract.recognize(imagePath, 'ita+eng');
         console.log('[RECEIPT] OCR text:', text.substring(0, 500));
 
         // Parse purchase date from receipt
@@ -357,8 +370,9 @@ app.post('/api/receipt', upload.single('image'), async (req, res) => {
             console.log('[RECEIPT] Added:', product.name, product.weight || '');
         }
 
-        // Cleanup temp file
+        // Cleanup temp files
         try { fs.unlinkSync(req.file.path); } catch (e) {}
+        if (convertedPath) try { fs.unlinkSync(convertedPath); } catch (e) {}
 
         res.json({
             success: true,
@@ -370,7 +384,8 @@ app.post('/api/receipt', upload.single('image'), async (req, res) => {
     } catch (e) {
         console.error('[ERROR] /api/receipt:', e.message);
         try { fs.unlinkSync(req.file.path); } catch (e2) {}
-        res.status(500).json({ error: 'Elaborazione scontrino fallita' });
+        if (convertedPath) try { fs.unlinkSync(convertedPath); } catch (e3) {}
+        res.status(500).json({ error: 'Elaborazione scontrino fallita: ' + e.message });
     }
 });
 

@@ -82,10 +82,8 @@ void handleReceiptScan();
 void enterDeepSleep();
 #endif
 
-// Triple-press detection for receipt mode
-int pressCount = 0;
-unsigned long lastPressTime = 0;
-const unsigned long TRIPLE_PRESS_WINDOW = 400; // ms between presses (reduced for faster response)
+// Button timing constants
+const unsigned long RECEIPT_PRESS_TIME = 3000;  // 3 sec = receipt scan
 
 #ifdef ENABLE_PIR
 void IRAM_ATTR pirISR() { pirTriggered = true; lastActivity = millis(); }
@@ -127,13 +125,16 @@ void setup() {
     setupWiFiManager();
     speakerBeep(2000,100); delay(100); speakerBeep(2500,100);
     Serial.println("\nPronto! Server: frigo.xamad.net");
-    Serial.println("BOOT 1x=scan, BOOT 3x=scontrino, BOOT lungo=toggle\n");
+    Serial.println("BOOT: click=scan, 1s=toggle, 3s=scontrino\n");
 }
 
 void loop() {
     unsigned long now = millis();
 
-    // Button handling - simplified triple-press detection
+    // Simple button handling:
+    // - Short press (<1s) = barcode scan
+    // - Medium press (1-3s) = toggle mode
+    // - Long press (>3s) = receipt scan
     bool btn = (digitalRead(BOOT_BTN) == LOW);
 
     if(btn && !buttonPressed) {
@@ -147,44 +148,26 @@ void loop() {
         unsigned long dur = now - buttonPressStart;
         buttonPressed = false;
 
-        if(dur >= LONG_PRESS_TIME) {
-            // Long press: toggle IN/OUT mode
-            pressCount = 0;
+        if(dur >= RECEIPT_PRESS_TIME) {
+            // Very long press (3+ sec): Receipt scan
+            Serial.println("\n>>> SCONTRINO <<<");
+            speakerBeep(1000,50); delay(50); speakerBeep(1500,50); delay(50); speakerBeep(2000,50);
+            handleReceiptScan();
+            lastScanTime = now;
+        }
+        else if(dur >= LONG_PRESS_TIME) {
+            // Medium press (1-3 sec): Toggle IN/OUT mode
             toggleMode();
             modeChangeTime = now;
         }
         else if(dur >= DEBOUNCE_TIME) {
-            // Short press detected
-            // Check if this is part of a multi-press sequence
-            if(now - lastPressTime < TRIPLE_PRESS_WINDOW) {
-                pressCount++;
-            } else {
-                pressCount = 1;  // Start new sequence
-            }
-            lastPressTime = now;
-
-            if(pressCount >= 3) {
-                // Triple press: Receipt scan
-                Serial.println("\n>>> SCONTRINO <<<");
-                speakerBeep(1000,50); delay(50); speakerBeep(1500,50); delay(50); speakerBeep(2000,50);
-                pressCount = 0;
-                handleReceiptScan();
-                lastScanTime = now;
-            }
-            // For single/double press, we'll check after timeout in next loop iteration
-        }
-        delay(50);
-    }
-
-    // Check if waiting for more presses timed out -> do normal scan
-    if(pressCount > 0 && pressCount < 3 && !buttonPressed) {
-        if(now - lastPressTime > TRIPLE_PRESS_WINDOW) {
+            // Short press (<1 sec): Barcode scan
             Serial.println("\n>>> SCAN <<<");
             speakerBeep(1500,50);
-            pressCount = 0;
             handleScan();
             lastScanTime = now;
         }
+        delay(100);  // Debounce
     }
 
     // PIR motion detection (only if enabled)
