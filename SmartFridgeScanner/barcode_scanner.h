@@ -14,43 +14,392 @@ struct BarcodeResult {
 // Quirc instance for QR decoding
 struct quirc *qr = NULL;
 
+// ============ EAN/UPC BARCODE PATTERNS ============
+// L-codes (left side, odd parity) - used in EAN-13, EAN-8, UPC-A
+const uint8_t EAN_L[] = {
+    0b0001101, // 0
+    0b0011001, // 1
+    0b0010011, // 2
+    0b0111101, // 3
+    0b0100011, // 4
+    0b0110001, // 5
+    0b0101111, // 6
+    0b0111011, // 7
+    0b0110111, // 8
+    0b0001011  // 9
+};
+
+// G-codes (left side, even parity) - used in EAN-13
+const uint8_t EAN_G[] = {
+    0b0100111, // 0
+    0b0110011, // 1
+    0b0011011, // 2
+    0b0100001, // 3
+    0b0011101, // 4
+    0b0111001, // 5
+    0b0000101, // 6
+    0b0010001, // 7
+    0b0001001, // 8
+    0b0010111  // 9
+};
+
+// R-codes (right side) - used in all EAN/UPC
+const uint8_t EAN_R[] = {
+    0b1110010, // 0
+    0b1100110, // 1
+    0b1101100, // 2
+    0b1000010, // 3
+    0b1011100, // 4
+    0b1001110, // 5
+    0b1010000, // 6
+    0b1000100, // 7
+    0b1001000, // 8
+    0b1110100  // 9
+};
+
+// First digit encoding (parity pattern for EAN-13 digits 2-7)
+const uint8_t EAN_FIRST[] = {
+    0b000000, // 0: LLLLLL
+    0b001011, // 1: LLGLGG
+    0b001101, // 2: LLGGLG
+    0b001110, // 3: LLGGGL
+    0b010011, // 4: LGLLGG
+    0b011001, // 5: LGGLLG
+    0b011100, // 6: LGGGLL
+    0b010101, // 7: LGLGLG
+    0b010110, // 8: LGLGGL
+    0b011010  // 9: LGGLGL
+};
+
+// Code 128 patterns (START, digits, STOP)
+const uint16_t CODE128_PATTERNS[] = {
+    0b11011001100, // 0 (space in B)
+    0b11001101100, // 1
+    0b11001100110, // 2
+    0b10010011000, // 3
+    0b10010001100, // 4
+    0b10001001100, // 5
+    0b10011001000, // 6
+    0b10011000100, // 7
+    0b10001100100, // 8
+    0b11001001000, // 9
+    // ... more patterns for full Code128
+};
+
 // ============ INITIALIZE BARCODE SCANNER ============
 void initBarcodeScanner() {
-    // Create quirc instance for QR code decoding
-    // Camera is already initialized by camera_config.h
     qr = quirc_new();
     if (qr == NULL) {
-        Serial.println("[QR] Failed to allocate quirc");
+        Serial.println("[SCAN] Failed to allocate quirc");
         return;
     }
-
-    // Resize for expected frame size (will be adjusted on first scan)
     if (quirc_resize(qr, 640, 480) < 0) {
-        Serial.println("[QR] Failed to resize quirc buffer");
+        Serial.println("[SCAN] Failed to resize quirc");
         quirc_destroy(qr);
         qr = NULL;
         return;
     }
-
-    Serial.println("[QR] Scanner initialized (quirc)");
+    Serial.println("[SCAN] Scanner ready: QR, EAN-13, EAN-8, UPC-A");
 }
 
-// ============ CONVERT JPEG TO GRAYSCALE ============
-// ESP32 camera returns JPEG, quirc needs grayscale
-bool jpegToGrayscale(camera_fb_t *fb, uint8_t *gray_buf, int width, int height) {
-    // For JPEG format, we need to decode first
-    // Quirc expects raw grayscale pixels
+// ============ FIND BARCODE START GUARD ============
+int findStartGuard(uint8_t *line, int width, int threshold, int *moduleWidth) {
+    // Look for start pattern: bar-space-bar (101)
+    for (int i = 20; i < width - 200; i++) {
+        // Find white->black transition
+        if (line[i] > threshold && line[i+1] <= threshold) {
+            int bar1 = 0, space = 0, bar2 = 0;
+            int j = i + 1;
 
-    if (fb->format == PIXFORMAT_GRAYSCALE) {
-        // Already grayscale, just copy
-        memcpy(gray_buf, fb->buf, width * height);
-        return true;
+            // Measure first black bar
+            while (j < width && line[j] <= threshold) { bar1++; j++; }
+            if (bar1 < 2 || bar1 > 20) continue;
+
+            // Measure white space
+            while (j < width && line[j] > threshold) { space++; j++; }
+            if (space < 1 || abs(space - bar1) > bar1) continue;
+
+            // Measure second black bar
+            while (j < width && line[j] <= threshold) { bar2++; j++; }
+            if (abs(bar2 - bar1) > bar1 / 2 + 1) continue;
+
+            // Valid start guard found
+            *moduleWidth = (bar1 + space + bar2) / 3;
+            if (*moduleWidth < 2) *moduleWidth = 2;
+            return i + 1;
+        }
+    }
+    return -1;
+}
+
+// ============ DECODE SINGLE DIGIT ============
+int decodeDigit(uint8_t *pattern, bool isRight, bool *isG) {
+    uint8_t code = 0;
+    for (int i = 0; i < 7; i++) {
+        code = (code << 1) | (pattern[i] ? 1 : 0);
     }
 
-    // JPEG format - use esp_jpg_decode or simple approximation
-    // For now, skip JPEG frames (we configured camera for grayscale effect)
-    Serial.println("[QR] Frame is JPEG, skipping decode");
-    return false;
+    // Try normal orientation
+    for (int d = 0; d < 10; d++) {
+        if (isRight) {
+            if (code == EAN_R[d]) return d;
+        } else {
+            if (code == EAN_L[d]) { if (isG) *isG = false; return d; }
+            if (code == EAN_G[d]) { if (isG) *isG = true; return d; }
+        }
+    }
+
+    // Try inverted (white/black swapped)
+    code = ~code & 0x7F;
+    for (int d = 0; d < 10; d++) {
+        if (isRight) {
+            if (code == EAN_R[d]) return d;
+        } else {
+            if (code == EAN_L[d]) { if (isG) *isG = false; return d; }
+            if (code == EAN_G[d]) { if (isG) *isG = true; return d; }
+        }
+    }
+
+    return -1;
+}
+
+// ============ READ 7-MODULE PATTERN ============
+void readPattern(uint8_t *line, int startX, int moduleWidth, int threshold, uint8_t *pattern) {
+    for (int m = 0; m < 7; m++) {
+        int px = startX + m * moduleWidth + moduleWidth / 2;
+        pattern[m] = (line[px] <= threshold) ? 1 : 0;
+    }
+}
+
+// ============ VERIFY EAN CHECKSUM ============
+bool verifyEAN13Checksum(char *digits) {
+    int sum = 0;
+    for (int i = 0; i < 12; i++) {
+        int val = digits[i] - '0';
+        sum += (i % 2 == 0) ? val : val * 3;
+    }
+    int expected = (10 - (sum % 10)) % 10;
+    return (digits[12] - '0') == expected;
+}
+
+bool verifyEAN8Checksum(char *digits) {
+    int sum = 0;
+    for (int i = 0; i < 7; i++) {
+        int val = digits[i] - '0';
+        sum += (i % 2 == 0) ? val * 3 : val;
+    }
+    int expected = (10 - (sum % 10)) % 10;
+    return (digits[7] - '0') == expected;
+}
+
+bool verifyUPCAChecksum(char *digits) {
+    int sum = 0;
+    for (int i = 0; i < 11; i++) {
+        int val = digits[i] - '0';
+        sum += (i % 2 == 0) ? val * 3 : val;
+    }
+    int expected = (10 - (sum % 10)) % 10;
+    return (digits[11] - '0') == expected;
+}
+
+// ============ SCAN EAN-13 (13 digits) ============
+BarcodeResult scanEAN13(uint8_t *line, int width, int threshold, int start, int moduleWidth) {
+    BarcodeResult result;
+    result.found = false;
+
+    // EAN-13: 95 modules = 3 (start) + 42 (left) + 5 (center) + 42 (right) + 3 (end)
+    if (start + moduleWidth * 95 > width) return result;
+
+    char digits[14] = {0};
+    uint8_t parityPattern = 0;
+    uint8_t pattern[7];
+
+    // Decode left 6 digits
+    int x = start + moduleWidth * 3;  // Skip start guard
+    for (int d = 0; d < 6; d++) {
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        bool isG = false;
+        int digit = decodeDigit(pattern, false, &isG);
+        if (digit < 0) return result;
+        digits[d + 1] = '0' + digit;
+        if (isG) parityPattern |= (1 << (5 - d));
+    }
+
+    // Decode first digit from parity
+    digits[0] = '?';
+    for (int fd = 0; fd < 10; fd++) {
+        if (EAN_FIRST[fd] == parityPattern) {
+            digits[0] = '0' + fd;
+            break;
+        }
+    }
+    if (digits[0] == '?') return result;
+
+    // Decode right 6 digits
+    x = start + moduleWidth * 50;  // After center guard
+    for (int d = 0; d < 6; d++) {
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        int digit = decodeDigit(pattern, true, NULL);
+        if (digit < 0) return result;
+        digits[d + 7] = '0' + digit;
+    }
+
+    // Verify checksum
+    if (!verifyEAN13Checksum(digits)) {
+        Serial.printf("[EAN13] Checksum FAIL: %s\n", digits);
+        return result;
+    }
+
+    result.found = true;
+    result.type = "EAN13";
+    result.data = String(digits);
+    return result;
+}
+
+// ============ SCAN EAN-8 (8 digits) ============
+BarcodeResult scanEAN8(uint8_t *line, int width, int threshold, int start, int moduleWidth) {
+    BarcodeResult result;
+    result.found = false;
+
+    // EAN-8: 67 modules = 3 (start) + 28 (left) + 5 (center) + 28 (right) + 3 (end)
+    if (start + moduleWidth * 67 > width) return result;
+
+    char digits[9] = {0};
+    uint8_t pattern[7];
+
+    // Decode left 4 digits (all L-codes)
+    int x = start + moduleWidth * 3;
+    for (int d = 0; d < 4; d++) {
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        int digit = decodeDigit(pattern, false, NULL);
+        if (digit < 0) return result;
+        digits[d] = '0' + digit;
+    }
+
+    // Decode right 4 digits (all R-codes)
+    x = start + moduleWidth * 36;  // After center guard
+    for (int d = 0; d < 4; d++) {
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        int digit = decodeDigit(pattern, true, NULL);
+        if (digit < 0) return result;
+        digits[d + 4] = '0' + digit;
+    }
+
+    // Verify checksum
+    if (!verifyEAN8Checksum(digits)) {
+        Serial.printf("[EAN8] Checksum FAIL: %s\n", digits);
+        return result;
+    }
+
+    result.found = true;
+    result.type = "EAN8";
+    result.data = String(digits);
+    return result;
+}
+
+// ============ SCAN UPC-A (12 digits) ============
+BarcodeResult scanUPCA(uint8_t *line, int width, int threshold, int start, int moduleWidth) {
+    BarcodeResult result;
+    result.found = false;
+
+    // UPC-A: 95 modules (same as EAN-13, but all L-codes on left)
+    if (start + moduleWidth * 95 > width) return result;
+
+    char digits[13] = {0};
+    uint8_t pattern[7];
+
+    // Decode left 6 digits (all L-codes)
+    int x = start + moduleWidth * 3;
+    for (int d = 0; d < 6; d++) {
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        int digit = decodeDigit(pattern, false, NULL);
+        if (digit < 0) return result;
+        digits[d] = '0' + digit;
+    }
+
+    // Decode right 6 digits (all R-codes)
+    x = start + moduleWidth * 50;
+    for (int d = 0; d < 6; d++) {
+        readPattern(line, x + d * 7 * moduleWidth, moduleWidth, threshold, pattern);
+        int digit = decodeDigit(pattern, true, NULL);
+        if (digit < 0) return result;
+        digits[d + 6] = '0' + digit;
+    }
+
+    // Verify checksum
+    if (!verifyUPCAChecksum(digits)) {
+        Serial.printf("[UPCA] Checksum FAIL: %s\n", digits);
+        return result;
+    }
+
+    result.found = true;
+    result.type = "UPCA";
+    result.data = String(digits);
+    return result;
+}
+
+// ============ SCAN ALL 1D BARCODES ============
+BarcodeResult scan1DBarcode(camera_fb_t *fb) {
+    BarcodeResult result;
+    result.found = false;
+
+    if (fb->format != PIXFORMAT_GRAYSCALE) {
+        return result;
+    }
+
+    int width = fb->width;
+    int height = fb->height;
+    uint8_t *pixels = fb->buf;
+
+    // Scan multiple horizontal lines
+    int scanLines[] = { height/2, height/3, height*2/3, height/4, height*3/4,
+                        height*2/5, height*3/5, height*5/12, height*7/12 };
+    int numLines = 9;
+
+    for (int sl = 0; sl < numLines; sl++) {
+        int y = scanLines[sl];
+        uint8_t *line = pixels + y * width;
+
+        // Calculate adaptive threshold for this line
+        long sum = 0;
+        uint8_t minVal = 255, maxVal = 0;
+        for (int x = 0; x < width; x++) {
+            sum += line[x];
+            if (line[x] < minVal) minVal = line[x];
+            if (line[x] > maxVal) maxVal = line[x];
+        }
+        int threshold = (minVal + maxVal) / 2;  // Midpoint threshold
+
+        // Find start guard
+        int moduleWidth = 0;
+        int start = findStartGuard(line, width, threshold, &moduleWidth);
+        if (start < 0) continue;
+
+        Serial.printf("[1D] Line %d: start=%d, mod=%d, th=%d\n", y, start, moduleWidth, threshold);
+
+        // Try EAN-13 first (most common in Europe)
+        result = scanEAN13(line, width, threshold, start, moduleWidth);
+        if (result.found) {
+            Serial.printf("[EAN13] SUCCESS: %s\n", result.data.c_str());
+            return result;
+        }
+
+        // Try EAN-8 (smaller products)
+        result = scanEAN8(line, width, threshold, start, moduleWidth);
+        if (result.found) {
+            Serial.printf("[EAN8] SUCCESS: %s\n", result.data.c_str());
+            return result;
+        }
+
+        // Try UPC-A (US products)
+        result = scanUPCA(line, width, threshold, start, moduleWidth);
+        if (result.found) {
+            Serial.printf("[UPCA] SUCCESS: %s\n", result.data.c_str());
+            return result;
+        }
+    }
+
+    return result;
 }
 
 // ============ SCAN QR CODE ============
@@ -58,135 +407,87 @@ BarcodeResult scanQRCode(camera_fb_t *fb) {
     BarcodeResult result;
     result.found = false;
 
-    if (qr == NULL) {
-        Serial.println("[QR] Scanner not initialized");
+    if (qr == NULL || fb->format != PIXFORMAT_GRAYSCALE) {
         return result;
     }
 
-    // Get quirc buffer for this frame size
     int w = fb->width;
     int h = fb->height;
 
-    // Resize quirc if needed
     if (quirc_resize(qr, w, h) < 0) {
-        Serial.println("[QR] Resize failed");
         return result;
     }
 
-    // Get quirc image buffer
     uint8_t *image = quirc_begin(qr, NULL, NULL);
     if (image == NULL) {
-        Serial.println("[QR] Failed to get image buffer");
         return result;
     }
 
-    // Copy frame data (assuming grayscale or convert JPEG)
-    if (fb->format == PIXFORMAT_JPEG) {
-        // JPEG needs decoding - use ESP32 JPEG decoder
-        // For simplicity, we'll use a grayscale approximation from JPEG
-        // In production, use esp_jpg_decode()
-
-        // Simple: assume frame is mostly grayscale from camera settings
-        // Copy first bytes as-is (won't work well, but shows structure)
-        Serial.println("[QR] Warning: JPEG frame, QR detection may fail");
-        Serial.println("[QR] Configure camera to PIXFORMAT_GRAYSCALE for better results");
-
-        // For JPEG, we need to decode. Use frame2bmp or similar
-        // Skip for now - just fill with zeros
-        memset(image, 128, w * h);
-    } else if (fb->format == PIXFORMAT_GRAYSCALE) {
-        // Direct copy for grayscale
-        memcpy(image, fb->buf, w * h);
-    } else if (fb->format == PIXFORMAT_RGB565) {
-        // Convert RGB565 to grayscale
-        uint16_t *rgb = (uint16_t *)fb->buf;
-        for (int i = 0; i < w * h; i++) {
-            uint16_t pixel = rgb[i];
-            uint8_t r = (pixel >> 11) & 0x1F;
-            uint8_t g = (pixel >> 5) & 0x3F;
-            uint8_t b = pixel & 0x1F;
-            // Convert to grayscale (approximate)
-            image[i] = (r * 8 + g * 4 + b * 8) / 3;
-        }
-    } else {
-        Serial.printf("[QR] Unsupported format: %d\n", fb->format);
-        quirc_end(qr);
-        return result;
-    }
-
-    // Finish and identify QR codes
+    memcpy(image, fb->buf, w * h);
     quirc_end(qr);
 
     int count = quirc_count(qr);
-    Serial.printf("[QR] Found %d potential QR regions\n", count);
-
     for (int i = 0; i < count; i++) {
         struct quirc_code code;
         struct quirc_data data;
 
         quirc_extract(qr, i, &code);
-
-        quirc_decode_error_t err = quirc_decode(&code, &data);
-        if (err == QUIRC_SUCCESS) {
+        if (quirc_decode(&code, &data) == QUIRC_SUCCESS) {
             result.found = true;
             result.type = "QR";
             result.data = String((const char *)data.payload);
-
-            Serial.printf("[QR] Decoded: %s\n", data.payload);
-            Serial.printf("[QR] Version: %d, ECC: %c\n", data.version,
-                         "MLHQ"[data.ecc_level]);
-            break;  // Found one, stop
-        } else {
-            Serial.printf("[QR] Decode error %d: %s\n", i, quirc_strerror(err));
+            Serial.printf("[QR] SUCCESS: %s\n", data.payload);
+            return result;
         }
     }
 
     return result;
 }
 
-// ============ SCAN BARCODE (wrapper) ============
+// ============ MAIN SCAN FUNCTION ============
 BarcodeResult scanBarcode(camera_fb_t *fb) {
     BarcodeResult result;
     result.found = false;
 
     Serial.println("[SCAN] Analyzing frame...");
-    Serial.printf("[SCAN] Size: %dx%d, Format: %d, Len: %d\n",
-                  fb->width, fb->height, fb->format, fb->len);
+    Serial.printf("[SCAN] Size: %dx%d, Format: %d\n", fb->width, fb->height, fb->format);
 
     // Try QR code first
     result = scanQRCode(fb);
+    if (result.found) return result;
 
-    if (result.found) {
-        return result;
+    // Try 1D barcodes (EAN-13, EAN-8, UPC-A)
+    Serial.println("[SCAN] Trying 1D barcodes...");
+    result = scan1DBarcode(fb);
+    if (result.found) return result;
+
+    // Debug: analyze image quality
+    if (fb->format == PIXFORMAT_GRAYSCALE) {
+        uint8_t minVal = 255, maxVal = 0;
+        long sum = 0;
+        for (int i = 0; i < (int)fb->len; i += 100) {
+            uint8_t v = fb->buf[i];
+            if (v < minVal) minVal = v;
+            if (v > maxVal) maxVal = v;
+            sum += v;
+        }
+        int avg = sum / (fb->len / 100);
+        int contrast = maxVal - minVal;
+
+        Serial.printf("[SCAN] Brightness=%d, Contrast=%d (min=%d, max=%d)\n",
+                      avg, contrast, minVal, maxVal);
+
+        if (contrast < 80) {
+            Serial.println("[SCAN] HINT: Low contrast - improve lighting");
+        }
+        if (avg < 60) {
+            Serial.println("[SCAN] HINT: Too dark - enable flash");
+        } else if (avg > 190) {
+            Serial.println("[SCAN] HINT: Too bright - reduce light");
+        }
     }
 
-    // No QR found - analyze image quality
-    Serial.println("[SCAN] No QR found, checking image quality...");
-
-    // For JPEG, we can't easily analyze pixels
-    if (fb->format != PIXFORMAT_JPEG) {
-        unsigned long brightness = 0;
-        int samples = min(1000, (int)fb->len);
-
-        for (int i = 0; i < samples; i++) {
-            brightness += fb->buf[i * fb->len / samples];
-        }
-        brightness /= samples;
-
-        Serial.printf("[SCAN] Brightness: %lu/255\n", brightness);
-
-        if (brightness < 50) {
-            Serial.println("[SCAN] Too dark! Enable flash LED");
-        } else if (brightness > 200) {
-            Serial.println("[SCAN] Too bright! Reduce exposure");
-        }
-    }
-
-    // For 1D barcodes (EAN, UPC, Code128), need different library
-    // TODO: Integrate ZBar or similar for 1D barcode support
-    Serial.println("[SCAN] 1D barcode support not implemented");
-    Serial.println("[SCAN] For EAN/UPC barcodes, integrate ZBar library");
-
+    Serial.println("[SCAN] No barcode detected");
     return result;
 }
 
