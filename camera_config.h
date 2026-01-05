@@ -29,8 +29,8 @@ bool initCamera() {
         config.pin_pclk = 13;
         config.pin_vsync = 6;
         config.pin_href = 7;
-        config.pin_sda = 4;
-        config.pin_scl = 5;
+        config.pin_sccb_sda = 4;  // SCCB = I2C per camera
+        config.pin_sccb_scl = 5;
         
         // Higher quality for S3
         config.frame_size = FRAMESIZE_SVGA;  // 800x600
@@ -52,8 +52,8 @@ bool initCamera() {
         config.pin_pclk = 22;
         config.pin_vsync = 25;
         config.pin_href = 23;
-        config.pin_sda = 26;
-        config.pin_scl = 27;
+        config.pin_sccb_sda = 26;  // Era pin_sda in Core 2.x
+        config.pin_sccb_scl = 27;  // Era pin_scl in Core 2.x
         config.pin_pwdn = 32;
         
         // Optimized for ESP32-CAM
@@ -65,7 +65,7 @@ bool initCamera() {
     // Initialize camera
     esp_err_t err = esp_camera_init(&config);
     if(err != ESP_OK) {
-        Serial.printf("Camera init error: 0x%x\n", err);
+        Serial.printf("Camera init failed: 0x%x\n", err);
         return false;
     }
     
