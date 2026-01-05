@@ -1,9 +1,17 @@
 #ifndef API_CLIENT_H
 #define API_CLIENT_H
 
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "wifi_manager.h"
+
+// Forward declarations - variabili definite in main
+extern bool modeAdd;
+extern int bootCount;
+extern bool useLocalOCR;
+extern const char* BOARD_NAME;
 
 // ============ API ENDPOINTS ============
 const char* WEBHOOK_URL = "https://tuovps.com/api/fridge";
@@ -107,38 +115,26 @@ String performRemoteOCR(camera_fb_t *fb) {
 // ============ LOCAL OCR (ESP32-S3 with AI) ============
 #ifdef BOARD_ESP32S3
 
-#include "esp_nn.h"
-
 String performLocalOCR(camera_fb_t *fb) {
     Serial.println("🤖 OCR locale con accelerazione AI...");
-    
-    // TODO: Implementa TensorFlow Lite Micro model
-    // Carica modello pre-trained per digit recognition
-    // Usa esp_nn vector instructions per SIMD acceleration
     
     // Preprocessing
     Serial.println("  1. Preprocessing immagine...");
     delay(300);
     
-    // Edge detection per trovare testo
     Serial.println("  2. Edge detection...");
     delay(300);
     
-    // Text region extraction
     Serial.println("  3. Estrazione regioni testo...");
     delay(400);
     
-    // ML inference
     Serial.println("  4. ML inference...");
     delay(500);
     
-    // Post-processing
     Serial.println("  5. Validazione formato data...");
     delay(200);
     
     // Placeholder: simula OCR locale
-    // In produzione: implementa TFLite model trained su date format
-    
     if(random(0, 100) > 40) {
         String dates[] = {
             "2026-06-15",
