@@ -3,277 +3,356 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Fridge Manager</title>
+    <title>Smart Fridge - Gestione Inventario</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 15px; margin-bottom: 30px; }
-        header h1 { font-size: 2em; margin-bottom: 10px; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 20px; }
-        .stat { background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; text-align: center; }
-        .stat-value { font-size: 2em; font-weight: bold; }
-        .stat-label { font-size: 0.9em; opacity: 0.9; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        .tab { padding: 12px 24px; background: white; border: none; border-radius: 10px; cursor: pointer; font-size: 1em; transition: all 0.3s; }
-        .tab.active { background: #667eea; color: white; }
-        .tab:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        .panel { display: none; background: white; border-radius: 15px; padding: 20px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
-        .panel.active { display: block; }
-        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
-        .product-card { background: #fafafa; border-radius: 12px; padding: 15px; border: 1px solid #eee; transition: all 0.3s; }
-        .product-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .product-card img { width: 100%; height: 150px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; background: #ddd; }
-        .product-card .barcode { font-family: monospace; color: #666; font-size: 0.85em; }
-        .product-card .name { font-weight: 600; font-size: 1.1em; margin: 5px 0; }
-        .product-card .expiry { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.85em; }
-        .expiry.ok { background: #d4edda; color: #155724; }
-        .expiry.warning { background: #fff3cd; color: #856404; }
-        .expiry.danger { background: #f8d7da; color: #721c24; }
-        .product-card .qty { color: #666; margin-top: 5px; }
-        .product-card .actions { display: flex; gap: 10px; margin-top: 10px; }
-        .btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9em; transition: all 0.2s; }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-danger { background: #dc3545; color: white; }
-        .btn-success { background: #28a745; color: white; }
-        .btn:hover { opacity: 0.9; transform: scale(1.02); }
-        .shopping-item { display: flex; align-items: center; justify-content: space-between; padding: 15px; background: #fafafa; border-radius: 10px; margin-bottom: 10px; }
-        .shopping-item .name { font-weight: 500; }
-        .shopping-item .qty { color: #666; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
-        .form-group input, .form-group select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 1em; }
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .empty-state { text-align: center; padding: 60px 20px; color: #999; }
-        .empty-state svg { width: 80px; height: 80px; margin-bottom: 20px; opacity: 0.5; }
-        @media (max-width: 600px) {
-            .form-row { grid-template-columns: 1fr; }
-            .product-grid { grid-template-columns: 1fr; }
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #2196F3; margin-bottom: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
+        .stat-card h3 { font-size: 2em; color: #333; }
+        .stat-card p { color: #666; margin-top: 5px; }
+        .stat-card.warning h3 { color: #ff9800; }
+        .section { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .section h2 { color: #333; margin-bottom: 15px; border-bottom: 2px solid #2196F3; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f9f9f9; font-weight: 600; }
+        tr:hover { background: #f5f5f5; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.8em; }
+        .badge-danger { background: #ffebee; color: #c62828; }
+        .badge-warning { background: #fff3e0; color: #ef6c00; }
+        .badge-success { background: #e8f5e9; color: #2e7d32; }
+        .btn { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 0.9em; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-primary { background: #2196F3; color: white; }
+        .btn-success { background: #4CAF50; color: white; }
+        .btn:hover { opacity: 0.9; }
+        .thumbnail { width: 50px; height: 50px; object-fit: cover; border-radius: 5px; cursor: pointer; transition: transform 0.2s; }
+        .thumbnail:hover { transform: scale(1.1); }
+        .no-img { width: 50px; height: 50px; background: #eee; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 20px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal img { max-width: 90%; max-height: 90%; border-radius: 10px; }
+        .modal-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; }
+        .form-row { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .form-row input, .form-row select { padding: 10px; border: 1px solid #ddd; border-radius: 5px; flex: 1; min-width: 150px; }
+        .empty { text-align: center; padding: 40px; color: #999; }
+        .refresh-btn { float: right; }
+        .btn-edit { background: #ff9800; color: white; margin-right: 5px; }
+        .action-btns { display: flex; gap: 5px; }
+        .editable { cursor: pointer; padding: 2px 5px; border-radius: 3px; }
+        .editable:hover { background: #e3f2fd; }
+        input.inline-edit { padding: 4px; border: 1px solid #2196F3; border-radius: 3px; width: 100%; }
     </style>
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Smart Fridge Manager</h1>
-            <p>Gestisci il contenuto del tuo frigorifero</p>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-value" id="stat-total">-</div>
-                    <div class="stat-label">Prodotti</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="stat-expiring">-</div>
-                    <div class="stat-label">In Scadenza</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="stat-shopping">-</div>
-                    <div class="stat-label">Lista Spesa</div>
-                </div>
+        <h1>🧊 Smart Fridge <button class="btn btn-primary refresh-btn" onclick="loadAll()">🔄 Aggiorna</button></h1>
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3 id="total-products">-</h3>
+                <p>Prodotti in frigo</p>
             </div>
-        </header>
-
-        <div class="tabs">
-            <button class="tab active" data-tab="inventory">Inventario</button>
-            <button class="tab" data-tab="expiring">In Scadenza</button>
-            <button class="tab" data-tab="shopping">Lista Spesa</button>
-            <button class="tab" data-tab="add">Aggiungi</button>
+            <div class="stat-card warning">
+                <h3 id="expiring-soon">-</h3>
+                <p>In scadenza (7 giorni)</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="shopping-items">-</h3>
+                <p>Lista della spesa</p>
+            </div>
         </div>
 
-        <div class="panel active" id="inventory">
-            <h2 style="margin-bottom: 20px;">Prodotti nel Frigo</h2>
-            <div class="product-grid" id="product-list"></div>
-        </div>
-
-        <div class="panel" id="expiring">
-            <h2 style="margin-bottom: 20px;">Prodotti in Scadenza (7 giorni)</h2>
-            <div class="product-grid" id="expiring-list"></div>
-        </div>
-
-        <div class="panel" id="shopping">
-            <h2 style="margin-bottom: 20px;">Lista della Spesa</h2>
-            <div id="shopping-list"></div>
-        </div>
-
-        <div class="panel" id="add">
-            <h2 style="margin-bottom: 20px;">Aggiungi Prodotto Manualmente</h2>
-            <form id="add-form">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Codice a Barre</label>
-                        <input type="text" name="barcode" required placeholder="8001234567890">
-                    </div>
-                    <div class="form-group">
-                        <label>Nome Prodotto</label>
-                        <input type="text" name="name" required placeholder="Latte intero">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Marca</label>
-                        <input type="text" name="brand" placeholder="Granarolo">
-                    </div>
-                    <div class="form-group">
-                        <label>Categoria</label>
-                        <select name="category">
-                            <option value="">Seleziona...</option>
-                            <option value="latticini">Latticini</option>
-                            <option value="carne">Carne</option>
-                            <option value="pesce">Pesce</option>
-                            <option value="verdura">Verdura</option>
-                            <option value="frutta">Frutta</option>
-                            <option value="bevande">Bevande</option>
-                            <option value="altro">Altro</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Quantita</label>
-                        <input type="number" name="quantity" value="1" min="1">
-                    </div>
-                    <div class="form-group">
-                        <label>Data Scadenza</label>
-                        <input type="date" name="expiry_date">
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 15px; font-size: 1.1em;">Aggiungi Prodotto</button>
+        <div class="section">
+            <h2>➕ Aggiungi Prodotto Manuale</h2>
+            <form id="add-form" class="form-row">
+                <input type="text" id="add-barcode" placeholder="Barcode *" required>
+                <input type="text" id="add-name" placeholder="Nome prodotto">
+                <input type="text" id="add-brand" placeholder="Marca">
+                <input type="date" id="add-expiry" placeholder="Scadenza">
+                <input type="number" id="add-qty" placeholder="Qtà" value="1" min="1" style="max-width:80px">
+                <button type="submit" class="btn btn-primary">Aggiungi</button>
             </form>
+        </div>
+
+        <div class="section">
+            <h2>📦 Inventario</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Foto</th>
+                        <th>Barcode</th>
+                        <th>Nome</th>
+                        <th>Marca</th>
+                        <th>Qtà</th>
+                        <th>Scadenza</th>
+                        <th>Azioni</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-table"></tbody>
+            </table>
+        </div>
+
+        <!-- Modal per immagine ingrandita -->
+        <div id="image-modal" class="modal" onclick="closeModal()">
+            <span class="modal-close">&times;</span>
+            <img id="modal-img" src="" alt="Prodotto">
+        </div>
+
+        <div class="section">
+            <h2>⚠️ Prodotti in Scadenza</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Barcode</th>
+                        <th>Nome</th>
+                        <th>Scadenza</th>
+                        <th>Stato</th>
+                    </tr>
+                </thead>
+                <tbody id="expiring-table"></tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>🛒 Lista della Spesa</h2>
+            <form id="shopping-form" class="form-row">
+                <input type="text" id="shop-name" placeholder="Nome prodotto *" required>
+                <input type="number" id="shop-qty" placeholder="Qtà" value="1" min="1" style="max-width:80px">
+                <button type="submit" class="btn btn-primary">+ Aggiungi alla lista</button>
+            </form>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Prodotto</th>
+                        <th>Qtà</th>
+                        <th>Azioni</th>
+                    </tr>
+                </thead>
+                <tbody id="shopping-table"></tbody>
+            </table>
         </div>
     </div>
 
     <script>
-        const API = '';
+        const API = '/api';
 
-        // Tab switching
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(tab.dataset.tab).classList.add('active');
-            });
+        async function fetchJSON(url) {
+            const res = await fetch(API + url);
+            return res.json();
+        }
+
+        async function loadStats() {
+            const stats = await fetchJSON('/stats');
+            document.getElementById('total-products').textContent = stats.total_products;
+            document.getElementById('expiring-soon').textContent = stats.expiring_soon;
+            document.getElementById('shopping-items').textContent = stats.shopping_items;
+        }
+
+        async function loadInventory() {
+            const data = await fetchJSON('/inventory');
+            const tbody = document.getElementById('inventory-table');
+            if (!data.products.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">Nessun prodotto</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.products.map(p => {
+                const imgHtml = p.image_path
+                    ? `<img class="thumbnail" src="${p.image_path}" onclick="openModal('${p.image_path}')" alt="${p.name || p.barcode}">`
+                    : `<div class="no-img">📦</div>`;
+                return `
+                    <tr data-id="${p.id}">
+                        <td>${imgHtml}</td>
+                        <td>${p.barcode}</td>
+                        <td><span class="editable" onclick="editField(this, ${p.id}, 'name')">${p.name || '-'}</span></td>
+                        <td><span class="editable" onclick="editField(this, ${p.id}, 'brand')">${p.brand || '-'}</span></td>
+                        <td><span class="editable" onclick="editField(this, ${p.id}, 'quantity')">${p.quantity}</span></td>
+                        <td><span class="editable" onclick="editField(this, ${p.id}, 'expiry_date')">${p.expiry_date || '-'}</span></td>
+                        <td class="action-btns">
+                            <button class="btn btn-danger" onclick="deleteProduct(${p.id})" title="Elimina">🗑️</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function openModal(src) {
+            document.getElementById('modal-img').src = src;
+            document.getElementById('image-modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('image-modal').classList.remove('active');
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
         });
 
-        // Load stats
-        async function loadStats() {
-            const res = await fetch(API + '/api/stats');
-            const data = await res.json();
-            document.getElementById('stat-total').textContent = data.total_products;
-            document.getElementById('stat-expiring').textContent = data.expiring_soon;
-            document.getElementById('stat-shopping').textContent = data.shopping_items;
-        }
-
-        // Load inventory
-        async function loadInventory() {
-            const res = await fetch(API + '/api/inventory');
-            const data = await res.json();
-            const container = document.getElementById('product-list');
-
-            if (data.products.length === 0) {
-                container.innerHTML = '<div class="empty-state"><p>Nessun prodotto nel frigo</p></div>';
-                return;
-            }
-
-            container.innerHTML = data.products.map(p => `
-                <div class="product-card">
-                    ${p.image_path ? `<img src="${p.image_path}" alt="${p.name || p.barcode}">` : '<div style="height:150px;background:#eee;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#999;">No image</div>'}
-                    <div class="barcode">${p.barcode}</div>
-                    <div class="name">${p.name || 'Prodotto sconosciuto'}</div>
-                    ${p.expiry_date ? `<span class="expiry ${getExpiryClass(p.expiry_date)}">${formatDate(p.expiry_date)}</span>` : ''}
-                    <div class="qty">Quantita: ${p.quantity}</div>
-                    <div class="actions">
-                        <button class="btn btn-danger" onclick="deleteProduct(${p.id})">Rimuovi</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Load expiring
         async function loadExpiring() {
-            const res = await fetch(API + '/api/expiring?days=7');
-            const data = await res.json();
-            const container = document.getElementById('expiring-list');
-
-            if (data.products.length === 0) {
-                container.innerHTML = '<div class="empty-state"><p>Nessun prodotto in scadenza</p></div>';
+            const data = await fetchJSON('/expiring?days=7');
+            const tbody = document.getElementById('expiring-table');
+            if (!data.products.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty">Nessun prodotto in scadenza</td></tr>';
                 return;
             }
-
-            container.innerHTML = data.products.map(p => `
-                <div class="product-card">
-                    ${p.image_path ? `<img src="${p.image_path}" alt="${p.name || p.barcode}">` : '<div style="height:150px;background:#eee;border-radius:8px;"></div>'}
-                    <div class="barcode">${p.barcode}</div>
-                    <div class="name">${p.name || 'Prodotto sconosciuto'}</div>
-                    <span class="expiry ${getExpiryClass(p.expiry_date)}">${formatDate(p.expiry_date)}</span>
-                    <div class="qty">Quantita: ${p.quantity}</div>
-                </div>
-            `).join('');
+            const today = new Date();
+            tbody.innerHTML = data.products.map(p => {
+                const exp = new Date(p.expiry_date);
+                const days = Math.ceil((exp - today) / (1000*60*60*24));
+                let badge = 'badge-success';
+                let status = 'OK';
+                if (days <= 0) { badge = 'badge-danger'; status = 'SCADUTO'; }
+                else if (days <= 3) { badge = 'badge-warning'; status = days + ' giorni'; }
+                else { status = days + ' giorni'; }
+                return `
+                    <tr>
+                        <td>${p.barcode}</td>
+                        <td>${p.name || '-'}</td>
+                        <td>${p.expiry_date}</td>
+                        <td><span class="badge ${badge}">${status}</span></td>
+                    </tr>
+                `;
+            }).join('');
         }
 
-        // Load shopping list
         async function loadShopping() {
-            const res = await fetch(API + '/api/shopping');
-            const data = await res.json();
-            const container = document.getElementById('shopping-list');
-
-            if (data.shopping_list.length === 0) {
-                container.innerHTML = '<div class="empty-state"><p>Lista della spesa vuota</p></div>';
+            const data = await fetchJSON('/shopping');
+            const tbody = document.getElementById('shopping-table');
+            if (!data.shopping_list.length) {
+                tbody.innerHTML = '<tr><td colspan="3" class="empty">Lista vuota</td></tr>';
                 return;
             }
-
-            container.innerHTML = data.shopping_list.map(item => `
-                <div class="shopping-item">
-                    <div>
-                        <div class="name">${item.name || item.barcode}</div>
-                        <div class="qty">Quantita: ${item.quantity_needed}</div>
-                    </div>
-                    <button class="btn btn-success" onclick="removeFromShopping(${item.id})">Comprato</button>
-                </div>
+            tbody.innerHTML = data.shopping_list.map(item => `
+                <tr data-id="${item.id}">
+                    <td><span class="editable" onclick="editShoppingField(this, ${item.id}, 'name')">${item.name || item.barcode}</span></td>
+                    <td><span class="editable" onclick="editShoppingField(this, ${item.id}, 'quantity')">${item.quantity_needed}</span></td>
+                    <td class="action-btns">
+                        <button class="btn btn-success" onclick="markPurchased(${item.id})" title="Comprato">✓</button>
+                        <button class="btn btn-danger" onclick="deleteShoppingItem(${item.id})" title="Elimina">🗑️</button>
+                    </td>
+                </tr>
             `).join('');
         }
 
-        // Delete product
+        // Inline edit per prodotti inventario
+        function editField(el, id, field) {
+            const currentVal = el.textContent === '-' ? '' : el.textContent;
+            const isDate = field === 'expiry_date';
+            const isNum = field === 'quantity';
+
+            const input = document.createElement('input');
+            input.className = 'inline-edit';
+            input.type = isDate ? 'date' : (isNum ? 'number' : 'text');
+            input.value = currentVal;
+            if (isNum) { input.min = '1'; input.style.width = '60px'; }
+
+            el.replaceWith(input);
+            input.focus();
+            input.select();
+
+            const save = async () => {
+                const newVal = input.value || (isNum ? '1' : '');
+                const data = {};
+                data[field] = isNum ? parseInt(newVal) : newVal;
+                await fetch(API + '/product/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                loadInventory();
+            };
+
+            input.onblur = save;
+            input.onkeydown = (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') loadInventory(); };
+        }
+
+        // Inline edit per lista spesa
+        function editShoppingField(el, id, field) {
+            const currentVal = el.textContent;
+            const isNum = field === 'quantity';
+
+            const input = document.createElement('input');
+            input.className = 'inline-edit';
+            input.type = isNum ? 'number' : 'text';
+            input.value = currentVal;
+            if (isNum) { input.min = '1'; input.style.width = '60px'; }
+
+            el.replaceWith(input);
+            input.focus();
+            input.select();
+
+            const save = async () => {
+                const newVal = input.value || (isNum ? '1' : '');
+                const data = {};
+                data[field === 'quantity' ? 'quantity_needed' : field] = isNum ? parseInt(newVal) : newVal;
+                await fetch(API + '/shopping/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                loadShopping();
+            };
+
+            input.onblur = save;
+            input.onkeydown = (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') loadShopping(); };
+        }
+
+        async function markPurchased(id) {
+            await fetch(API + '/shopping/' + id, { method: 'DELETE' });
+            loadAll();
+        }
+
         async function deleteProduct(id) {
-            if (!confirm('Rimuovere questo prodotto?')) return;
-            await fetch(API + '/api/product/' + id, { method: 'DELETE' });
+            if (!confirm('Eliminare questo prodotto?')) return;
+            await fetch(API + '/product/' + id, { method: 'DELETE' });
             loadAll();
         }
 
-        // Remove from shopping
-        async function removeFromShopping(id) {
-            await fetch(API + '/api/shopping/' + id, { method: 'DELETE' });
+        async function deleteShoppingItem(id) {
+            if (!confirm('Rimuovere dalla lista?')) return;
+            await fetch(API + '/shopping/' + id, { method: 'DELETE' });
             loadAll();
         }
 
-        // Add product form
         document.getElementById('add-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData);
-
-            await fetch(API + '/api/manual', {
+            const data = {
+                barcode: document.getElementById('add-barcode').value,
+                name: document.getElementById('add-name').value,
+                brand: document.getElementById('add-brand').value,
+                expiry_date: document.getElementById('add-expiry').value,
+                quantity: parseInt(document.getElementById('add-qty').value) || 1
+            };
+            await fetch(API + '/manual', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
-
             e.target.reset();
-            document.querySelector('[data-tab="inventory"]').click();
+            document.getElementById('add-qty').value = '1';
             loadAll();
         });
 
-        // Helpers
-        function getExpiryClass(date) {
-            const days = Math.ceil((new Date(date) - new Date()) / (1000 * 60 * 60 * 24));
-            if (days <= 1) return 'danger';
-            if (days <= 3) return 'warning';
-            return 'ok';
-        }
-
-        function formatDate(date) {
-            return new Date(date).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        }
+        document.getElementById('shopping-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('shop-name').value,
+                barcode: '',
+                quantity: parseInt(document.getElementById('shop-qty').value) || 1
+            };
+            await fetch(API + '/shopping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            e.target.reset();
+            document.getElementById('shop-qty').value = '1';
+            loadAll();
+        });
 
         function loadAll() {
             loadStats();
@@ -282,9 +361,8 @@
             loadShopping();
         }
 
-        // Initial load
         loadAll();
-        setInterval(loadAll, 30000); // Refresh every 30s
+        setInterval(loadAll, 30000);
     </script>
 </body>
 </html>
