@@ -1,16 +1,21 @@
 #ifndef LED_FEEDBACK_H
 #define LED_FEEDBACK_H
 
-#include "driver/ledc.h"
+// ESP32 Arduino Core 3.x usa nuove API
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    // Nuove API Core 3.x
+    #define USE_NEW_LEDC_API
+#endif
+
 #include "driver/dac.h"
 
 // ============ PIN DEFINITIONS ============
 #if defined(BOARD_ESP32S3)
     #define FLASH_LED 48
-    #define SPEAKER_PIN 25  // DAC1 (GPIO 25 on S3)
+    #define SPEAKER_PIN 17  // GPIO alternativo per S3
 #else
     #define FLASH_LED 4
-    #define SPEAKER_PIN 25  // DAC1 (GPIO 25 on ESP32)
+    #define SPEAKER_PIN 25  // DAC1
 #endif
 
 #define PWM_CHANNEL 0
@@ -18,87 +23,99 @@
 
 // ============ LED INITIALIZATION ============
 void initLED() {
-    // Setup PWM for flash LED
-    ledcSetup(PWM_CHANNEL, 5000, 8);  // 5kHz, 8-bit
-    ledcAttachPin(FLASH_LED, PWM_CHANNEL);
-    ledcWrite(PWM_CHANNEL, 0);
+    // Setup PWM for flash LED usando nuove API
+    #ifdef USE_NEW_LEDC_API
+        ledcAttach(FLASH_LED, 5000, 8);  // pin, freq, resolution
+    #else
+        ledcSetup(PWM_CHANNEL, 5000, 8);
+        ledcAttachPin(FLASH_LED, PWM_CHANNEL);
+    #endif
     
-    // Setup DAC for speaker (optional)
-    dac_output_enable(SPEAKER_CHANNEL);
-    dac_output_voltage(SPEAKER_CHANNEL, 0);
+    ledcWrite(FLASH_LED, 0);
+    
+    // Setup DAC for speaker (se supportato)
+    #if SOC_DAC_SUPPORTED
+        dac_output_enable(SPEAKER_CHANNEL);
+        dac_output_voltage(SPEAKER_CHANNEL, 0);
+    #endif
 }
 
 // ============ LED COLORS (PWM Simulation) ============
 void ledGreen() {
-    ledcWrite(PWM_CHANNEL, 77);  // 30% = "green"
+    ledcWrite(FLASH_LED, 77);  // 30% = "green"
 }
 
 void ledRed() {
-    ledcWrite(PWM_CHANNEL, 255); // 100% = "red"
+    ledcWrite(FLASH_LED, 255); // 100% = "red"
 }
 
 void ledOff() {
-    ledcWrite(PWM_CHANNEL, 0);
+    ledcWrite(FLASH_LED, 0);
 }
 
 void flashOn() {
-    ledcWrite(PWM_CHANNEL, 255);
+    ledcWrite(FLASH_LED, 255);
 }
 
 void flashOff() {
-    ledcWrite(PWM_CHANNEL, 0);
+    ledcWrite(FLASH_LED, 0);
 }
 
 // ============ LED PATTERNS ============
 void ledBlink(int times, int onTime, int offTime) {
     for(int i=0; i<times; i++) {
-        ledcWrite(PWM_CHANNEL, 255);
+        ledcWrite(FLASH_LED, 255);
         delay(onTime);
-        ledcWrite(PWM_CHANNEL, 0);
+        ledcWrite(FLASH_LED, 0);
         delay(offTime);
     }
 }
 
 void ledProcessing() {
     for(int i=0; i<10; i++) {
-        ledcWrite(PWM_CHANNEL, 255);
+        ledcWrite(FLASH_LED, 255);
         delay(100);
-        ledcWrite(PWM_CHANNEL, 0);
+        ledcWrite(FLASH_LED, 0);
         delay(100);
     }
 }
 
 void ledSuccess() {
     for(int i=0; i<3; i++) {
-        ledcWrite(PWM_CHANNEL, 255);
+        ledcWrite(FLASH_LED, 255);
         delay(200);
-        ledcWrite(PWM_CHANNEL, 0);
+        ledcWrite(FLASH_LED, 0);
         delay(200);
     }
 }
 
 void ledError() {
     for(int i=0; i<5; i++) {
-        ledcWrite(PWM_CHANNEL, 255);
+        ledcWrite(FLASH_LED, 255);
         delay(500);
-        ledcWrite(PWM_CHANNEL, 0);
+        ledcWrite(FLASH_LED, 0);
         delay(500);
     }
 }
 
 // ============ SPEAKER FUNCTIONS (DAC) ============
 void speakerBeep(int frequency, int duration) {
-    int halfPeriod = 1000000 / frequency / 2;
-    int cycles = (duration * 1000) / (halfPeriod * 2);
-    
-    for(int i=0; i<cycles; i++) {
-        dac_output_voltage(SPEAKER_CHANNEL, 200);
-        delayMicroseconds(halfPeriod);
-        dac_output_voltage(SPEAKER_CHANNEL, 55);
-        delayMicroseconds(halfPeriod);
-    }
-    
-    dac_output_voltage(SPEAKER_CHANNEL, 0);
+    #if SOC_DAC_SUPPORTED
+        int halfPeriod = 1000000 / frequency / 2;
+        int cycles = (duration * 1000) / (halfPeriod * 2);
+        
+        for(int i=0; i<cycles; i++) {
+            dac_output_voltage(SPEAKER_CHANNEL, 200);
+            delayMicroseconds(halfPeriod);
+            dac_output_voltage(SPEAKER_CHANNEL, 55);
+            delayMicroseconds(halfPeriod);
+        }
+        
+        dac_output_voltage(SPEAKER_CHANNEL, 0);
+    #else
+        // Fallback: solo print se DAC non supportato
+        Serial.printf("🔊 Beep: %dHz, %dms\n", frequency, duration);
+    #endif
 }
 
 void speakerSuccess() {
