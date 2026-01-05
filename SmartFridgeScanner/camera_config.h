@@ -131,25 +131,25 @@ bool initCamera() {
     }
 
     // Sensor optimization for barcode/QR detection
-    s->set_brightness(s, 1);        // Slightly bright
+    s->set_brightness(s, 2);        // Brighter (was 1)
     s->set_contrast(s, 2);          // High contrast (important for barcodes)
     s->set_saturation(s, -2);       // Low saturation (more B&W like)
     s->set_sharpness(s, 2);         // Max sharpness (important for barcodes)
     s->set_denoise(s, 0);           // No denoise (preserve edges)
-    s->set_special_effect(s, 2);    // Grayscale effect
+    s->set_special_effect(s, 0);    // No effect (was grayscale, but format is already grayscale)
     s->set_whitebal(s, 1);          // Auto white balance
     s->set_awb_gain(s, 1);          // AWB gain
     s->set_wb_mode(s, 0);           // Auto WB mode
     s->set_exposure_ctrl(s, 1);     // Auto exposure
-    s->set_aec2(s, 0);              // Disable AEC DSP
+    s->set_aec2(s, 1);              // Enable AEC DSP for better exposure
     s->set_gain_ctrl(s, 1);         // Auto gain
-    s->set_agc_gain(s, 0);          // AGC gain
+    s->set_agc_gain(s, 5);          // Increase AGC gain for brighter image
     s->set_bpc(s, 1);               // Black pixel correction
     s->set_wpc(s, 1);               // White pixel correction
     s->set_raw_gma(s, 1);           // Gamma correction
     s->set_lenc(s, 1);              // Lens correction
-    s->set_hmirror(s, 0);           // No horizontal mirror
-    s->set_vflip(s, 0);             // No vertical flip
+    s->set_hmirror(s, 1);           // Horizontal mirror (fix orientation)
+    s->set_vflip(s, 1);             // Vertical flip (fix orientation)
     s->set_dcw(s, 1);               // Downsize enable
 
     Serial.printf("[CAM] Sensor: %s\n", s->id.PID == OV2640_PID ? "OV2640" :
