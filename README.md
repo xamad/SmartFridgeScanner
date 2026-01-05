@@ -53,13 +53,14 @@ BOOT Button: GPIO 0
 Flash LED: GPIO 4
 ```
 
-### Display TFT 2" SPI (Opzionale - Solo WROVER)
+### Display TFT 2" SPI (Opzionale)
 
-Per ESP32-WROVER Kit con display TFT ILI9341/ST7789:
+Il display TFT e' opzionale. Se non collegato, il sistema funziona normalmente.
 
+#### ESP32-WROVER Kit (ILI9341/ST7789)
 ```
-TFT Pin    ESP32 WROVER Pin
--------    ----------------
+TFT Pin    ESP32 WROVER
+-------    ------------
 VCC        3.3V
 GND        GND
 CS         GPIO 5
@@ -67,11 +68,25 @@ RST        GPIO 16
 DC         GPIO 17
 MOSI       GPIO 23
 SCLK       GPIO 18
-LED        3.3V (o GPIO per dimming)
-MISO       (non usato, solo lettura)
+LED        3.3V
 ```
 
-**Nota:** Su ESP32-CAM questi pin sono usati dalla camera, quindi il display TFT NON e' supportato.
+#### ESP32-S3-CAM Freenove/Generic (ST7789/ILI9341)
+```
+TFT Pin    ESP32-S3-CAM
+-------    ------------
+VCC        3.3V
+GND        GND
+CS         GPIO 38
+RST        GPIO 39
+DC         GPIO 40
+MOSI       GPIO 41
+SCLK       GPIO 42
+LED        3.3V
+```
+
+#### ESP32-CAM AI-Thinker
+**NON SUPPORTATO** - Tutti i pin SPI sono usati dalla camera.
 
 ## Funzionamento
 
