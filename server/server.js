@@ -195,11 +195,12 @@ app.post('/api/product', upload.single('image'), (req, res) => {
         db.prepare('INSERT INTO scan_history (barcode, action, device, image_path) VALUES (?, ?, ?, ?)').run(barcode, action, device, imagePath);
 
         if (action === 'add') {
+            const purchaseDate = new Date().toISOString().split('T')[0]; // Today's date
             const existing = db.prepare('SELECT * FROM products WHERE barcode = ? AND finished = 0').get(barcode);
             if (existing) {
                 db.prepare('UPDATE products SET quantity = quantity + 1, image_path = COALESCE(?, image_path) WHERE id = ?').run(imagePath, existing.id);
             } else {
-                db.prepare('INSERT INTO products (barcode, expiry_date, image_path) VALUES (?, ?, ?)').run(barcode, expiry_date, imagePath);
+                db.prepare('INSERT INTO products (barcode, expiry_date, purchase_date, image_path) VALUES (?, ?, ?, ?)').run(barcode, expiry_date, purchaseDate, imagePath);
             }
             db.prepare('DELETE FROM shopping_list WHERE barcode = ?').run(barcode);
             res.json({ success: true, message: 'Prodotto aggiunto' });
@@ -505,13 +506,14 @@ app.post('/api/manual', (req, res) => {
         const category = sanitizeString(req.body.category, 50);
         const quantity = validatePositiveInt(req.body.quantity, 1, 999);
         const expiry_date = validateDate(req.body.expiry_date);
+        const purchaseDate = new Date().toISOString().split('T')[0]; // Today's date
 
         if (!barcode) {
             return res.status(400).json({ success: false, error: 'Barcode richiesto' });
         }
 
-        db.prepare('INSERT INTO products (barcode, name, brand, category, quantity, expiry_date) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(barcode, name, brand, category, quantity, expiry_date);
+        db.prepare('INSERT INTO products (barcode, name, brand, category, quantity, expiry_date, purchase_date) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(barcode, name, brand, category, quantity, expiry_date, purchaseDate);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ success: false, error: 'Errore database' });

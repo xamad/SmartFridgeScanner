@@ -77,9 +77,15 @@ void printBanner();
 void showMode();
 void toggleMode();
 void handleScan();
+void handleReceiptScan();
 #ifdef ENABLE_DEEP_SLEEP
 void enterDeepSleep();
 #endif
+
+// Triple-press detection for receipt mode
+int pressCount = 0;
+unsigned long lastPressTime = 0;
+const unsigned long TRIPLE_PRESS_WINDOW = 800; // ms between presses
 
 #ifdef ENABLE_PIR
 void IRAM_ATTR pirISR() { pirTriggered = true; lastActivity = millis(); }
@@ -121,20 +127,51 @@ void setup() {
     setupWiFiManager();
     speakerBeep(2000,100); delay(100); speakerBeep(2500,100);
     Serial.println("\nPronto! Server: frigo.xamad.net");
-    Serial.println("BOOT breve=scan, BOOT lungo=toggle\n");
+    Serial.println("BOOT 1x=scan, BOOT 3x=scontrino, BOOT lungo=toggle\n");
 }
 
 void loop() {
     unsigned long now = millis();
 
-    // Button handling (always active)
+    // Button handling with triple-press detection for receipt mode
     bool btn = (digitalRead(BOOT_BTN) == LOW);
     if(btn && !buttonPressed) { buttonPressed = true; buttonPressStart = now; lastActivity = now; }
     else if(!btn && buttonPressed) {
         unsigned long dur = now - buttonPressStart;
         buttonPressed = false;
-        if(dur >= LONG_PRESS_TIME) { toggleMode(); modeChangeTime = now; }
-        else if(dur >= DEBOUNCE_TIME) { Serial.println("\n>>> SCAN <<<"); speakerBeep(1500,50); handleScan(); lastScanTime = now; }
+        if(dur >= LONG_PRESS_TIME) {
+            toggleMode(); modeChangeTime = now;
+            pressCount = 0; // Reset triple-press counter
+        }
+        else if(dur >= DEBOUNCE_TIME) {
+            // Triple-press detection
+            if(now - lastPressTime < TRIPLE_PRESS_WINDOW) {
+                pressCount++;
+            } else {
+                pressCount = 1;
+            }
+            lastPressTime = now;
+
+            if(pressCount >= 3) {
+                // Triple-press: Receipt scan mode
+                Serial.println("\n>>> SCONTRINO <<<");
+                speakerBeep(1000,50); delay(50); speakerBeep(1500,50); delay(50); speakerBeep(2000,50);
+                handleReceiptScan();
+                lastScanTime = now;
+                pressCount = 0;
+            } else {
+                // Wait briefly for more presses
+                delay(TRIPLE_PRESS_WINDOW / 2);
+                if(now - lastPressTime >= TRIPLE_PRESS_WINDOW / 2) {
+                    // Single/double press timeout - do normal scan
+                    Serial.println("\n>>> SCAN <<<");
+                    speakerBeep(1500,50);
+                    handleScan();
+                    lastScanTime = now;
+                    pressCount = 0;
+                }
+            }
+        }
         delay(100);
     }
 
@@ -228,6 +265,63 @@ void handleScan() {
     }
     delay(1500); showMode();
     Serial.println("=============\n");
+}
+
+void handleReceiptScan() {
+    Serial.println("\n==== SCONTRINO ====");
+    lastActivity = millis();
+
+    // Special LED pattern for receipt mode
+    for(int i=0; i<3; i++) {
+        ledcWrite(FLASH_LED, 128);
+        delay(100);
+        ledcWrite(FLASH_LED, 0);
+        delay(100);
+    }
+
+    flashOn();
+    delay(500); // Longer delay for receipt positioning
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if(!fb) {
+        Serial.println("Frame fail!");
+        flashOff();
+        ledError();
+        speakerError();
+        showMode();
+        return;
+    }
+
+    Serial.printf("Frame: %dx%d\n", fb->width, fb->height);
+    flashOff();
+
+    Serial.println("Invio scontrino al server...");
+    ledBlink(5, 100, 100);
+
+    int productsFound = sendReceiptImage(fb);
+    esp_camera_fb_return(fb);
+
+    if(productsFound > 0) {
+        Serial.printf("Aggiunti %d prodotti!\n", productsFound);
+        // Success feedback - multiple beeps for number of products
+        for(int i=0; i<min(productsFound, 5); i++) {
+            speakerBeep(2000, 100);
+            ledSuccess();
+            delay(200);
+        }
+    } else if(productsFound == 0) {
+        Serial.println("Nessun prodotto riconosciuto");
+        ledError();
+        speakerError();
+    } else {
+        Serial.println("Errore invio scontrino");
+        ledError();
+        speakerError();
+    }
+
+    delay(1500);
+    showMode();
+    Serial.println("==================\n");
 }
 
 #ifdef ENABLE_DEEP_SLEEP

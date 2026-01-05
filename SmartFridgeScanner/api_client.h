@@ -16,6 +16,7 @@ extern const char* BOARD_NAME;
 // ============ API ENDPOINTS ============
 const char* WEBHOOK_URL = "https://frigo.xamad.net/api/product";
 const char* OCR_URL = "https://frigo.xamad.net/api/ocr";
+const char* RECEIPT_URL = "https://frigo.xamad.net/api/receipt";
 
 // ============ SEND PRODUCT WEBHOOK ============
 bool sendProductWebhook(String barcode, String expiryDate, String barcodeType) {
@@ -110,6 +111,110 @@ String performRemoteOCR(camera_fb_t *fb) {
     
     http.end();
     return expiryDate;
+}
+
+// ============ SEND RECEIPT FOR OCR PARSING ============
+int sendReceiptImage(camera_fb_t *fb) {
+    if(!checkWiFi()) {
+        return -1;
+    }
+
+    HTTPClient http;
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    Serial.println("🧾 Invio scontrino per parsing...");
+
+    // Create multipart form data
+    String boundary = "----ESP32ReceiptBoundary";
+    String contentType = "multipart/form-data; boundary=" + boundary;
+
+    // Build multipart body
+    String bodyStart = "--" + boundary + "\r\n";
+    bodyStart += "Content-Disposition: form-data; name=\"image\"; filename=\"receipt.jpg\"\r\n";
+    bodyStart += "Content-Type: image/jpeg\r\n\r\n";
+
+    String bodyEnd = "\r\n--" + boundary + "--\r\n";
+
+    size_t totalLen = bodyStart.length() + fb->len + bodyEnd.length();
+
+    http.begin(client, RECEIPT_URL);
+    http.addHeader("Content-Type", contentType);
+    http.addHeader("Content-Length", String(totalLen));
+    http.setTimeout(30000); // 30 sec for OCR processing
+
+    // Send in parts using WiFiClient directly
+    if(!client.connect("frigo.xamad.net", 443)) {
+        Serial.println("❌ Connessione fallita");
+        return -1;
+    }
+
+    // Write HTTP request
+    client.print("POST /api/receipt HTTP/1.1\r\n");
+    client.print("Host: frigo.xamad.net\r\n");
+    client.printf("Content-Type: %s\r\n", contentType.c_str());
+    client.printf("Content-Length: %d\r\n", totalLen);
+    client.print("Connection: close\r\n\r\n");
+
+    // Write body
+    client.print(bodyStart);
+
+    // Write image in chunks
+    size_t written = 0;
+    const size_t chunkSize = 1024;
+    while(written < fb->len) {
+        size_t toWrite = min(chunkSize, fb->len - written);
+        client.write(fb->buf + written, toWrite);
+        written += toWrite;
+        yield();
+    }
+
+    client.print(bodyEnd);
+
+    // Read response
+    unsigned long timeout = millis() + 30000;
+    while(client.connected() && millis() < timeout) {
+        if(client.available()) {
+            String line = client.readStringUntil('\n');
+            if(line.startsWith("HTTP/")) {
+                int code = line.substring(9, 12).toInt();
+                Serial.printf("HTTP Response: %d\n", code);
+
+                // Read rest of response
+                while(client.available()) {
+                    String respLine = client.readStringUntil('\n');
+                    if(respLine.startsWith("{")) {
+                        // JSON response
+                        DynamicJsonDocument doc(2048);
+                        DeserializationError error = deserializeJson(doc, respLine);
+                        if(!error && doc["success"]) {
+                            int productsFound = doc["products_found"];
+                            Serial.printf("✅ Scontrino: %d prodotti trovati\n", productsFound);
+                            if(doc.containsKey("products")) {
+                                JsonArray products = doc["products"];
+                                for(JsonObject product : products) {
+                                    Serial.printf("  - %s", product["name"].as<String>().c_str());
+                                    if(product.containsKey("weight") && !product["weight"].isNull()) {
+                                        Serial.printf(" (%s)", product["weight"].as<String>().c_str());
+                                    }
+                                    Serial.println();
+                                }
+                            }
+                            client.stop();
+                            return productsFound;
+                        }
+                    }
+                }
+                client.stop();
+                return (code >= 200 && code < 300) ? 0 : -1;
+            }
+        }
+        delay(10);
+    }
+
+    client.stop();
+    Serial.println("❌ Timeout risposta");
+    return -1;
 }
 
 // ============ LOCAL OCR (ESP32-S3 with AI) ============
