@@ -128,11 +128,12 @@ void handleCapture() {
     int fileSize = 54 + 256*4 + imageSize;  // Header + palette + data
 
     // Create BMP header
+    int dataOffset = 54 + 256*4;  // 1078
     uint8_t bmpHeader[54] = {
         'B', 'M',                           // Signature
         (uint8_t)(fileSize), (uint8_t)(fileSize >> 8), (uint8_t)(fileSize >> 16), (uint8_t)(fileSize >> 24),
         0, 0, 0, 0,                         // Reserved
-        54 + 256*4, 0, 0, 0,                // Data offset (header + palette)
+        (uint8_t)(dataOffset), (uint8_t)(dataOffset >> 8), 0, 0,  // Data offset (header + palette)
         40, 0, 0, 0,                        // Info header size
         (uint8_t)(width), (uint8_t)(width >> 8), (uint8_t)(width >> 16), (uint8_t)(width >> 24),
         (uint8_t)(height), (uint8_t)(height >> 8), (uint8_t)(height >> 16), (uint8_t)(height >> 24),
@@ -192,7 +193,7 @@ void handleStatus() {
 }
 
 // Handle /scan - perform scan and return result
-void handleScan() {
+void handleDebugScan() {
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
         debugServer.send(500, "application/json", "{\"error\":\"Camera failed\"}");
@@ -232,7 +233,7 @@ void initDebugServer() {
     debugServer.on("/", handleRoot);
     debugServer.on("/capture", handleCapture);
     debugServer.on("/status", handleStatus);
-    debugServer.on("/scan", handleScan);
+    debugServer.on("/scan", handleDebugScan);
 
     debugServer.begin();
     Serial.println("\n=== DEBUG SERVER ===");
