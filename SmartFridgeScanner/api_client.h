@@ -119,31 +119,28 @@ int sendReceiptImage(camera_fb_t *fb) {
         return -1;
     }
 
-    HTTPClient http;
     WiFiClientSecure client;
     client.setInsecure();
 
     Serial.println("🧾 Invio scontrino per parsing...");
 
+    // Create PGM header for grayscale image (Tesseract can read PGM)
+    // PGM format: P5\nwidth height\n255\n[raw bytes]
+    String pgmHeader = "P5\n" + String(fb->width) + " " + String(fb->height) + "\n255\n";
+
     // Create multipart form data
     String boundary = "----ESP32ReceiptBoundary";
-    String contentType = "multipart/form-data; boundary=" + boundary;
 
-    // Build multipart body
+    // Build multipart body parts
     String bodyStart = "--" + boundary + "\r\n";
-    bodyStart += "Content-Disposition: form-data; name=\"image\"; filename=\"receipt.jpg\"\r\n";
-    bodyStart += "Content-Type: image/jpeg\r\n\r\n";
+    bodyStart += "Content-Disposition: form-data; name=\"image\"; filename=\"receipt.pgm\"\r\n";
+    bodyStart += "Content-Type: image/x-portable-graymap\r\n\r\n";
 
     String bodyEnd = "\r\n--" + boundary + "--\r\n";
 
-    size_t totalLen = bodyStart.length() + fb->len + bodyEnd.length();
+    size_t totalLen = bodyStart.length() + pgmHeader.length() + fb->len + bodyEnd.length();
 
-    http.begin(client, RECEIPT_URL);
-    http.addHeader("Content-Type", contentType);
-    http.addHeader("Content-Length", String(totalLen));
-    http.setTimeout(30000); // 30 sec for OCR processing
-
-    // Send in parts using WiFiClient directly
+    // Connect to server
     if(!client.connect("frigo.xamad.net", 443)) {
         Serial.println("❌ Connessione fallita");
         return -1;
@@ -152,24 +149,28 @@ int sendReceiptImage(camera_fb_t *fb) {
     // Write HTTP request
     client.print("POST /api/receipt HTTP/1.1\r\n");
     client.print("Host: frigo.xamad.net\r\n");
-    client.printf("Content-Type: %s\r\n", contentType.c_str());
+    client.printf("Content-Type: multipart/form-data; boundary=%s\r\n", boundary.c_str());
     client.printf("Content-Length: %d\r\n", totalLen);
     client.print("Connection: close\r\n\r\n");
 
     // Write body
     client.print(bodyStart);
+    client.print(pgmHeader);
 
     // Write image in chunks
+    Serial.printf("Sending %d bytes...\n", fb->len);
     size_t written = 0;
     const size_t chunkSize = 1024;
     while(written < fb->len) {
         size_t toWrite = min(chunkSize, fb->len - written);
         client.write(fb->buf + written, toWrite);
         written += toWrite;
+        if(written % 10240 == 0) Serial.printf("  %d/%d bytes\n", written, fb->len);
         yield();
     }
 
     client.print(bodyEnd);
+    Serial.println("Upload completo, attendo risposta...");
 
     // Read response
     unsigned long timeout = millis() + 30000;
@@ -180,29 +181,40 @@ int sendReceiptImage(camera_fb_t *fb) {
                 int code = line.substring(9, 12).toInt();
                 Serial.printf("HTTP Response: %d\n", code);
 
-                // Read rest of response
-                while(client.available()) {
+                // Skip headers, find JSON body
+                String jsonBody = "";
+                bool headersEnded = false;
+                while(client.available() || client.connected()) {
+                    if(!client.available()) { delay(10); continue; }
                     String respLine = client.readStringUntil('\n');
-                    if(respLine.startsWith("{")) {
-                        // JSON response
-                        DynamicJsonDocument doc(2048);
-                        DeserializationError error = deserializeJson(doc, respLine);
-                        if(!error && doc["success"]) {
-                            int productsFound = doc["products_found"];
-                            Serial.printf("✅ Scontrino: %d prodotti trovati\n", productsFound);
-                            if(doc.containsKey("products")) {
-                                JsonArray products = doc["products"];
-                                for(JsonObject product : products) {
-                                    Serial.printf("  - %s", product["name"].as<String>().c_str());
-                                    if(product.containsKey("weight") && !product["weight"].isNull()) {
-                                        Serial.printf(" (%s)", product["weight"].as<String>().c_str());
-                                    }
-                                    Serial.println();
+                    if(!headersEnded && respLine == "\r") {
+                        headersEnded = true;
+                        continue;
+                    }
+                    if(headersEnded && respLine.length() > 0) {
+                        jsonBody = respLine;
+                        break;
+                    }
+                }
+
+                if(jsonBody.startsWith("{")) {
+                    DynamicJsonDocument doc(2048);
+                    DeserializationError error = deserializeJson(doc, jsonBody);
+                    if(!error && doc["success"]) {
+                        int productsFound = doc["products_found"];
+                        Serial.printf("✅ Scontrino: %d prodotti trovati\n", productsFound);
+                        if(doc.containsKey("products")) {
+                            JsonArray products = doc["products"];
+                            for(JsonObject product : products) {
+                                Serial.printf("  - %s", product["name"].as<String>().c_str());
+                                if(product.containsKey("weight") && !product["weight"].isNull()) {
+                                    Serial.printf(" (%s)", product["weight"].as<String>().c_str());
                                 }
+                                Serial.println();
                             }
-                            client.stop();
-                            return productsFound;
                         }
+                        client.stop();
+                        return productsFound;
                     }
                 }
                 client.stop();

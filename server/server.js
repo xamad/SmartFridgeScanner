@@ -77,8 +77,8 @@ app.use(express.static('public'));
 app.use('/images', express.static('uploads/products'));
 
 // ============ FILE UPLOAD SICURO ============
-const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/x-portable-graymap', 'application/octet-stream'];
+const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pgm', '.raw'];
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {

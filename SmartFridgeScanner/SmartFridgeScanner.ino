@@ -85,7 +85,7 @@ void enterDeepSleep();
 // Triple-press detection for receipt mode
 int pressCount = 0;
 unsigned long lastPressTime = 0;
-const unsigned long TRIPLE_PRESS_WINDOW = 800; // ms between presses
+const unsigned long TRIPLE_PRESS_WINDOW = 400; // ms between presses (reduced for faster response)
 
 #ifdef ENABLE_PIR
 void IRAM_ATTR pirISR() { pirTriggered = true; lastActivity = millis(); }
@@ -132,61 +132,58 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
-    static bool waitingForMorePresses = false;
-    static unsigned long pressWindowStart = 0;
 
-    // Button handling with triple-press detection for receipt mode
+    // Button handling - simplified triple-press detection
     bool btn = (digitalRead(BOOT_BTN) == LOW);
 
     if(btn && !buttonPressed) {
+        // Button just pressed
         buttonPressed = true;
         buttonPressStart = now;
         lastActivity = now;
     }
     else if(!btn && buttonPressed) {
+        // Button just released
         unsigned long dur = now - buttonPressStart;
         buttonPressed = false;
 
         if(dur >= LONG_PRESS_TIME) {
-            // Long press: toggle mode
+            // Long press: toggle IN/OUT mode
+            pressCount = 0;
             toggleMode();
             modeChangeTime = now;
-            pressCount = 0;
-            waitingForMorePresses = false;
         }
         else if(dur >= DEBOUNCE_TIME) {
-            // Short press: count it
-            pressCount++;
-            lastPressTime = now;
-
-            if(pressCount == 1) {
-                // First press - start the window
-                pressWindowStart = now;
-                waitingForMorePresses = true;
+            // Short press detected
+            // Check if this is part of a multi-press sequence
+            if(now - lastPressTime < TRIPLE_PRESS_WINDOW) {
+                pressCount++;
+            } else {
+                pressCount = 1;  // Start new sequence
             }
+            lastPressTime = now;
 
             if(pressCount >= 3) {
                 // Triple press: Receipt scan
                 Serial.println("\n>>> SCONTRINO <<<");
                 speakerBeep(1000,50); delay(50); speakerBeep(1500,50); delay(50); speakerBeep(2000,50);
+                pressCount = 0;
                 handleReceiptScan();
                 lastScanTime = now;
-                pressCount = 0;
-                waitingForMorePresses = false;
             }
+            // For single/double press, we'll check after timeout in next loop iteration
         }
-        delay(50);  // Small debounce
+        delay(50);
     }
 
-    // Non-blocking: check if press window expired - do normal scan
-    if(waitingForMorePresses && pressCount > 0 && pressCount < 3) {
-        if(now - pressWindowStart > TRIPLE_PRESS_WINDOW) {
+    // Check if waiting for more presses timed out -> do normal scan
+    if(pressCount > 0 && pressCount < 3 && !buttonPressed) {
+        if(now - lastPressTime > TRIPLE_PRESS_WINDOW) {
             Serial.println("\n>>> SCAN <<<");
             speakerBeep(1500,50);
+            pressCount = 0;
             handleScan();
             lastScanTime = now;
-            pressCount = 0;
-            waitingForMorePresses = false;
         }
     }
 
@@ -294,12 +291,8 @@ void handleReceiptScan() {
         delay(100);
     }
 
-    // Switch camera to JPEG for receipt (OCR needs proper image format)
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_pixformat(s, PIXFORMAT_JPEG);
-    s->set_framesize(s, FRAMESIZE_XGA);  // 1024x768 for text clarity
-    s->set_quality(s, 10);  // High quality JPEG
-    delay(200);  // Let camera adjust
+    // Use current camera config (GRAYSCALE) - server can handle it
+    // DON'T change pixel format at runtime - causes FB-SIZE errors!
 
     flashOn();
     delay(500); // Longer delay for receipt positioning
@@ -308,15 +301,13 @@ void handleReceiptScan() {
     if(!fb) {
         Serial.println("Frame fail!");
         flashOff();
-        // Restore grayscale for barcode scanning
-        s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
         ledError();
         speakerError();
         showMode();
         return;
     }
 
-    Serial.printf("Frame: %dx%d, %d bytes (JPEG)\n", fb->width, fb->height, fb->len);
+    Serial.printf("Frame: %dx%d, %d bytes\n", fb->width, fb->height, fb->len);
     flashOff();
 
     Serial.println("Invio scontrino al server...");
@@ -324,10 +315,6 @@ void handleReceiptScan() {
 
     int productsFound = sendReceiptImage(fb);
     esp_camera_fb_return(fb);
-
-    // Restore grayscale for barcode scanning
-    s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
-    delay(100);
 
     if(productsFound > 0) {
         Serial.printf("Aggiunti %d prodotti!\n", productsFound);
