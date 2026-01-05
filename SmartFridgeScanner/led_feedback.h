@@ -24,7 +24,7 @@
     #define SPEAKER_PIN 25
 #endif
 
-#define PWM_CHANNEL 0
+#define PWM_CHANNEL 2  // Use channel 2 to avoid conflict with camera (uses 0)
 #define SPEAKER_CHANNEL DAC_CHANNEL_1
 
 void initLED() {
